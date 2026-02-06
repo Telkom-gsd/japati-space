@@ -30,6 +30,25 @@ export default function AddRoomModal({
     status: "available" as Room["status"],
     pic: "",
     phone: "",
+    cost_center: "",
+    witel: "",
+    tenant_name: "",
+    company_status: "",
+    address: "",
+    objek_sewa: "",
+    peruntukan: "",
+    jenis_dokumen: "",
+    judul_dokumen: "",
+    no_tgl_dokumen: "",
+    link_dok_evidence: "",
+    contract_start: "",
+    contract_end: "",
+    contract_duration_months: "",
+    br_area: "",
+    sc_area: "",
+    satuan: "",
+    br_price_per_m2: "",
+    sc_price_per_m2: "",
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -61,6 +80,25 @@ export default function AddRoomModal({
       pic: formData.pic || null,
       phone: formData.phone || null,
       color: color,
+      cost_center: formData.cost_center || null,
+      witel: formData.witel || null,
+      tenant_name: formData.tenant_name || null,
+      company_status: formData.company_status || null,
+      address: formData.address || null,
+      objek_sewa: formData.objek_sewa || null,
+      peruntukan: formData.peruntukan || null,
+      jenis_dokumen: formData.jenis_dokumen || null,
+      judul_dokumen: formData.judul_dokumen || null,
+      no_tgl_dokumen: formData.no_tgl_dokumen || null,
+      link_dok_evidence: formData.link_dok_evidence || null,
+      contract_start: formData.contract_start || null,
+      contract_end: formData.contract_end || null,
+      contract_duration_months: formData.contract_duration_months ? parseFloat(formData.contract_duration_months) : null,
+      br_area: formData.br_area ? parseFloat(formData.br_area) : null,
+      sc_area: formData.sc_area ? parseFloat(formData.sc_area) : null,
+      satuan: formData.satuan || null,
+      br_price_per_m2: formData.br_price_per_m2 ? parseFloat(formData.br_price_per_m2) : null,
+      sc_price_per_m2: formData.sc_price_per_m2 ? parseFloat(formData.sc_price_per_m2) : null,
     };
 
     await onSave(roomData);
@@ -247,6 +285,157 @@ export default function AddRoomModal({
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
                   placeholder="08xx-xxxx-xxxx"
                 />
+              </div>
+            </div>
+
+            {/* Data Tenant */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">Data Tenant</h3>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Tenant</label>
+                <input type="text" name="tenant_name" value={formData.tenant_name} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  placeholder="Nama tenant" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status Perusahaan</label>
+                <input type="text" name="company_status" value={formData.company_status} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  placeholder="Status perusahaan" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cost Center</label>
+                <input type="text" name="cost_center" value={formData.cost_center} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  placeholder="Cost center" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Witel</label>
+                <input type="text" name="witel" value={formData.witel} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  placeholder="Witel" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Alamat</label>
+              <textarea name="address" value={formData.address} onChange={handleInputChange} rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                placeholder="Alamat lengkap" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Objek Sewa</label>
+                <input type="text" name="objek_sewa" value={formData.objek_sewa} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  placeholder="Objek sewa" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Peruntukan</label>
+                <input type="text" name="peruntukan" value={formData.peruntukan} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  placeholder="Peruntukan" />
+              </div>
+            </div>
+
+            {/* Data Dokumen */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">Data Dokumen</h3>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Dokumen</label>
+                <input type="text" name="jenis_dokumen" value={formData.jenis_dokumen} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  placeholder="Jenis dokumen" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">No/Tgl Dokumen</label>
+                <input type="text" name="no_tgl_dokumen" value={formData.no_tgl_dokumen} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  placeholder="No/Tgl dokumen" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Judul Dokumen</label>
+              <input type="text" name="judul_dokumen" value={formData.judul_dokumen} onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                placeholder="Judul dokumen" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Link Dokumen Evidence</label>
+              <input type="url" name="link_dok_evidence" value={formData.link_dok_evidence} onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                placeholder="https://..." />
+            </div>
+
+            {/* Data Kontrak */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">Data Kontrak</h3>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mulai Kontrak</label>
+                <input type="date" name="contract_start" value={formData.contract_start} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Akhir Kontrak</label>
+                <input type="date" name="contract_end" value={formData.contract_end} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Durasi (bulan)</label>
+                <input type="number" name="contract_duration_months" value={formData.contract_duration_months} onChange={handleInputChange} min="0"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
+              </div>
+            </div>
+
+            {/* Area & Harga */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3">Area & Harga</h3>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">BR Area</label>
+                <input type="number" name="br_area" value={formData.br_area} onChange={handleInputChange} step="0.01" min="0"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">SC Area</label>
+                <input type="number" name="sc_area" value={formData.sc_area} onChange={handleInputChange} step="0.01" min="0"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Satuan</label>
+                <input type="text" name="satuan" value={formData.satuan} onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  placeholder="m², unit" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Harga BR/m²</label>
+                <input type="number" name="br_price_per_m2" value={formData.br_price_per_m2} onChange={handleInputChange} step="0.01" min="0"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Harga SC/m²</label>
+                <input type="number" name="sc_price_per_m2" value={formData.sc_price_per_m2} onChange={handleInputChange} step="0.01" min="0"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
               </div>
             </div>
 

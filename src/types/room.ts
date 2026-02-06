@@ -14,6 +14,26 @@ export interface Room {
   color: string | null;
   created_at: string;
   updated_at: string;
+  // Additional fields
+  cost_center: string | null;
+  witel: string | null;
+  tenant_name: string | null;
+  company_status: string | null;
+  address: string | null;
+  objek_sewa: string | null;
+  peruntukan: string | null;
+  jenis_dokumen: string | null;
+  judul_dokumen: string | null;
+  no_tgl_dokumen: string | null;
+  link_dok_evidence: string | null;
+  contract_start: string | null;
+  contract_end: string | null;
+  contract_duration_months: number | null;
+  br_area: number | null;
+  sc_area: number | null;
+  satuan: string | null;
+  br_price_per_m2: number | null;
+  sc_price_per_m2: number | null;
 }
 
 export interface RoomFormData {
@@ -26,6 +46,25 @@ export interface RoomFormData {
   status: "available" | "occupied" | "maintenance";
   pic: string;
   phone: string;
+  cost_center: string;
+  witel: string;
+  tenant_name: string;
+  company_status: string;
+  address: string;
+  objek_sewa: string;
+  peruntukan: string;
+  jenis_dokumen: string;
+  judul_dokumen: string;
+  no_tgl_dokumen: string;
+  link_dok_evidence: string;
+  contract_start: string;
+  contract_end: string;
+  contract_duration_months: number | null;
+  br_area: number | null;
+  sc_area: number | null;
+  satuan: string;
+  br_price_per_m2: number | null;
+  sc_price_per_m2: number | null;
 }
 
 export interface SVGRoom {

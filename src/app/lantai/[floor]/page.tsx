@@ -94,12 +94,12 @@ export default function FloorPage({ params }: FloorPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4 md:p-6">
+    <div className="min-h-screen bg-gray-100 p-2 md:p-4">
       {/* Unified Container */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden max-w-400 mx-auto">
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden max-w-480 mx-auto h-[calc(100vh-16px)] md:h-[calc(100vh-32px)] flex flex-col">
         {/* Header with Navigation */}
-        <div className="border-b border-gray-200 px-4 md:px-6 py-4">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="border-b border-gray-200 px-4 md:px-6 py-3 shrink-0">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div className="flex items-center gap-4">
               <h1 className="text-lg md:text-xl font-semibold text-gray-900">
                 Peta Gedung
@@ -135,9 +135,9 @@ export default function FloorPage({ params }: FloorPageProps) {
         </div>
 
         {/* Main Content Grid */}
-        <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-180px)] lg:max-h-[800px]">
+        <div className="flex-1 flex flex-col lg:flex-row min-h-0">
           {/* Map Area - Takes most space */}
-          <div className="flex-1 min-h-125 lg:min-h-0 border-b lg:border-b-0 lg:border-r border-gray-200 overflow-auto">
+          <div className="flex-1 min-h-0 border-b lg:border-b-0 lg:border-r border-gray-200 flex items-center justify-center p-2 md:p-4 overflow-hidden">
             <FloorMap
               floor={floor}
               rooms={rooms}
@@ -149,7 +149,7 @@ export default function FloorPage({ params }: FloorPageProps) {
           </div>
 
           {/* Legend Sidebar */}
-          <div className="w-full lg:w-80 xl:w-96 p-4 bg-gray-50 lg:overflow-hidden lg:flex lg:flex-col">
+          <div className="w-full lg:w-72 xl:w-80 shrink-0 p-4 bg-gray-50 overflow-y-auto max-h-60 lg:max-h-none">
             <RoomLegend
               rooms={rooms}
               selectedRoomId={selectedRoomId}

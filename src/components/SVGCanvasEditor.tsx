@@ -17,6 +17,7 @@ interface PathInfo {
   color: string;
   opacity: number;
   layer: L.Polygon | L.Polyline;
+  selected?: boolean;
 }
 
 interface HistoryState {
@@ -67,6 +68,11 @@ export default function SVGCanvasEditor({
     y: 0,
   });
 
+  // Multi-select state
+  const [multiSelectedLayers, setMultiSelectedLayers] = useState<Set<L.Polygon | L.Polyline>>(new Set());
+  const [multiSelectedIds, setMultiSelectedIds] = useState<Set<string>>(new Set());
+  const [selectAllChecked, setSelectAllChecked] = useState(false);
+
   // History for undo
   const historyRef = useRef<HistoryState[]>([]);
   const historyIndexRef = useRef(-1);
@@ -86,6 +92,127 @@ export default function SVGCanvasEditor({
   const DEFAULT_ZOOM = 0;
   const svgBoundsRef = useRef<L.LatLngBounds | null>(null);
   const svgHeightRef = useRef(800);
+  const svgWidthRef = useRef(1000);
+  const originalSvgDocRef = useRef<Document | null>(null);
+  const svgOverlayRef = useRef<L.ImageOverlay | null>(null);
+  const currentSvgUrlRef = useRef<string | null>(null);
+
+  // Reliable helper to find the "Area Ruangan" <g> in any SVG document/clone.
+  // CSS selectors with namespace colons can silently fail on cloned docs,
+  // so we always iterate manually.
+  const findAreaRuanganGroup = (doc: Document): Element | null => {
+    const groups = doc.querySelectorAll("g");
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      if (
+        g.getAttribute("inkscape:label") === "Area Ruangan" ||
+        g.getAttributeNS("http://www.inkscape.org/namespaces/inkscape", "label") === "Area Ruangan"
+      ) {
+        return g;
+      }
+    }
+    return null;
+  };
+
+  // Clean up duplicate paths in a SVG document's Area Ruangan group
+  // This modifies the document in place and returns the number of duplicates removed
+  const cleanupDuplicatePaths = (doc: Document): number => {
+    const areaGroup = findAreaRuanganGroup(doc);
+    if (!areaGroup) return 0;
+
+    const pathElements = Array.from(areaGroup.querySelectorAll("path"));
+    const seenBaseIds = new Set<string>();
+    const seenGeometries = new Set<string>();
+    let removedCount = 0;
+
+    pathElements.forEach((pathEl) => {
+      const rawId = pathEl.getAttribute("id") || "";
+      const d = pathEl.getAttribute("d") || "";
+      
+      // Get base ID (strip suffixes)
+      const baseId = rawId.replace(/_dup\d+/g, "").replace(/_\d+$/g, "");
+      
+      // Create geometry signature (normalized)
+      const geometrySig = d.replace(/\s+/g, " ").trim();
+      
+      // Check for duplicates
+      const isDuplicateId = seenBaseIds.has(baseId);
+      const isDuplicateGeometry = seenGeometries.has(geometrySig);
+      
+      if (isDuplicateId || isDuplicateGeometry) {
+        // Remove this duplicate path
+        pathEl.remove();
+        removedCount++;
+        console.log(`[SVG Cleanup] Removed duplicate: ${rawId} (baseId: ${baseId})`);
+      } else {
+        // Keep this path, update its ID to base ID
+        seenBaseIds.add(baseId);
+        seenGeometries.add(geometrySig);
+        
+        // Normalize the ID to base ID (remove suffixes)
+        if (rawId !== baseId) {
+          pathEl.setAttribute("id", baseId);
+        }
+      }
+    });
+
+    console.log(`[SVG Cleanup] Removed ${removedCount} duplicates, kept ${seenBaseIds.size} unique paths`);
+    return removedCount;
+  };
+
+  // Generate path elements string from current Leaflet layers
+  const generatePathsString = useCallback((): string => {
+    const drawnItems = drawnItemsRef.current;
+    if (!drawnItems) return "";
+
+    const pathStrings: string[] = [];
+    const usedIds = new Set<string>();
+
+    drawnItems.eachLayer((layer) => {
+      if ((layer as L.Polygon).getLatLngs) {
+        const polygon = layer as L.Polygon;
+        const latlngs = polygon.getLatLngs()[0] as L.LatLng[];
+        const options = polygon.options as L.PathOptions & { id?: string };
+        
+        // Get ID, use original or generate new
+        let id = options.id || `path_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Clean ALL suffixes to get the base ID (prevents accumulation like path6615_1_1_1)
+        // Remove: _dup1, _1, _2, etc.
+        const baseId = id.replace(/_dup\d+/g, "").replace(/_\d+$/g, "");
+        
+        // Use base ID if available, otherwise make unique
+        let uniqueId = baseId;
+        if (usedIds.has(baseId)) {
+          // This shouldn't happen normally since load dedupe prevents duplicates
+          // But just in case, generate a truly unique ID
+          let counter = 1;
+          while (usedIds.has(uniqueId)) {
+            uniqueId = `${baseId}_${counter++}`;
+          }
+        }
+        usedIds.add(uniqueId);
+        
+        // Also update the layer's option ID so it stays consistent
+        options.id = uniqueId;
+
+        const pathD =
+          latlngs
+            .map((ll, i) => {
+              const x = ll.lng;
+              const y = svgHeightRef.current - ll.lat;
+              return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+            })
+            .join(" ") + " Z";
+
+        pathStrings.push(
+          `<path id="${uniqueId}" d="${pathD}" style="fill:${options.fillColor || "#cccccc"};fill-opacity:${options.fillOpacity || 0.5};stroke:#000000;stroke-width:1"/>`
+        );
+      }
+    });
+
+    return pathStrings.join("");
+  }, []);
 
   // Save current state to history
   const saveToHistory = useCallback(() => {
@@ -135,6 +262,15 @@ export default function SVGCanvasEditor({
     setPaths(pathInfos);
   }, []);
 
+  // Refresh SVG overlay to reflect current polygon state
+  // The background SVG has "Area Ruangan" hidden — we keep it that way
+  // because Leaflet polygon layers are the visual source of truth
+  const refreshSvgOverlay = useCallback(() => {
+    // No-op: the background overlay intentionally hides "Area Ruangan"
+    // and all polygon rendering is handled by Leaflet layers.
+    // This avoids visual duplication between overlay and drawn layers.
+  }, []);
+
   // Undo function
   const handleUndo = useCallback(() => {
     if (historyIndexRef.current <= 0) return;
@@ -154,9 +290,10 @@ export default function SVGCanvasEditor({
     });
 
     refreshPathsList();
+    refreshSvgOverlay();
     setSelectedLayer(null);
     setSelectedPathId(null);
-  }, [refreshPathsList]);
+  }, [refreshPathsList, refreshSvgOverlay]);
 
   // Highlight selected layer
   const highlightLayer = useCallback((layer: L.Polygon | L.Polyline | null) => {
@@ -215,6 +352,7 @@ export default function SVGCanvasEditor({
       attributionControl: false,
       dragging: true,
       scrollWheelZoom: true,
+      doubleClickZoom: false, // IMPORTANT: Disable default double-click zoom to prevent conflicts
     });
 
     mapRef.current = map;
@@ -234,8 +372,13 @@ export default function SVGCanvasEditor({
 
     return () => {
       styleEl.remove();
+      // Clear drawnItems before removing map
+      if (drawnItemsRef.current) {
+        drawnItemsRef.current.clearLayers();
+      }
       map.remove();
       mapRef.current = null;
+      drawnItemsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [floor]);
@@ -243,7 +386,27 @@ export default function SVGCanvasEditor({
   // Handle delete
   const handleDeleteSelected = useCallback(() => {
     const drawnItems = drawnItemsRef.current;
-    if (!drawnItems || !selectedLayer) return;
+    if (!drawnItems) return;
+
+    // If multi-select has items, delete those
+    if (multiSelectedLayers.size > 0) {
+      saveToHistory();
+      multiSelectedLayers.forEach((layer) => {
+        drawnItems.removeLayer(layer);
+      });
+      setMultiSelectedLayers(new Set());
+      setMultiSelectedIds(new Set());
+      setSelectAllChecked(false);
+      setSelectedLayer(null);
+      setSelectedPathId(null);
+      setShowColorPicker(false);
+      refreshPathsList();
+      highlightLayer(null);
+      return;
+    }
+
+    // Otherwise delete single selected
+    if (!selectedLayer) return;
 
     saveToHistory();
     drawnItems.removeLayer(selectedLayer);
@@ -252,7 +415,62 @@ export default function SVGCanvasEditor({
     setShowColorPicker(false);
     refreshPathsList();
     highlightLayer(null);
-  }, [selectedLayer, saveToHistory, refreshPathsList, highlightLayer]);
+  }, [selectedLayer, multiSelectedLayers, saveToHistory, refreshPathsList, highlightLayer]);
+
+  // Toggle multi-select for a path (used by checkbox in path list)
+  const toggleMultiSelect = useCallback((pathInfo: PathInfo, isChecked: boolean) => {
+    setMultiSelectedLayers((prev) => {
+      const next = new Set(prev);
+      if (isChecked) {
+        next.add(pathInfo.layer);
+      } else {
+        next.delete(pathInfo.layer);
+      }
+      return next;
+    });
+    setMultiSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (isChecked) {
+        next.add(pathInfo.id);
+      } else {
+        next.delete(pathInfo.id);
+      }
+      return next;
+    });
+
+    // Highlight multi-selected layers
+    const drawnItems = drawnItemsRef.current;
+    if (drawnItems) {
+      const path = pathInfo.layer as L.Path;
+      if (isChecked) {
+        path.setStyle({ weight: 3, dashArray: "6, 3", color: "#ff3333" });
+      } else {
+        path.setStyle({ weight: 2, dashArray: undefined, color: "#000000" });
+      }
+    }
+  }, []);
+
+  // Select / deselect all paths
+  const toggleSelectAll = useCallback((checked: boolean) => {
+    setSelectAllChecked(checked);
+    if (checked) {
+      const allLayers = new Set<L.Polygon | L.Polyline>();
+      const allIds = new Set<string>();
+      paths.forEach((p) => {
+        allLayers.add(p.layer);
+        allIds.add(p.id);
+        (p.layer as L.Path).setStyle({ weight: 3, dashArray: "6, 3", color: "#ff3333" });
+      });
+      setMultiSelectedLayers(allLayers);
+      setMultiSelectedIds(allIds);
+    } else {
+      paths.forEach((p) => {
+        (p.layer as L.Path).setStyle({ weight: 2, dashArray: undefined, color: "#000000" });
+      });
+      setMultiSelectedLayers(new Set());
+      setMultiSelectedIds(new Set());
+    }
+  }, [paths]);
 
   // Handle keyboard events
   useEffect(() => {
@@ -273,7 +491,7 @@ export default function SVGCanvasEditor({
         e.preventDefault();
         handleUndo();
       }
-      if (e.key === "Delete" && selectedLayer) {
+      if (e.key === "Delete" && (selectedLayer || multiSelectedLayers.size > 0)) {
         handleDeleteSelected();
       }
     };
@@ -291,7 +509,7 @@ export default function SVGCanvasEditor({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [selectedLayer, handleUndo, highlightLayer, handleDeleteSelected]);
+  }, [selectedLayer, multiSelectedLayers, handleUndo, highlightLayer, handleDeleteSelected]);
 
   // Handle tool mode changes
   useEffect(() => {
@@ -467,22 +685,29 @@ export default function SVGCanvasEditor({
     const handleDblClick = (e: L.LeafletMouseEvent) => {
       if (toolMode === "polygon" && polygonPointsRef.current.length >= 3) {
         e.originalEvent.preventDefault();
+        e.originalEvent.stopPropagation();
 
+        // Capture points and immediately clear to prevent double execution
+        const pointsToUse = [...polygonPointsRef.current];
+        polygonPointsRef.current = []; // Clear immediately
+        
         // Create polygon
         saveToHistory();
-        const polygon = L.polygon(polygonPointsRef.current, {
+        const polygon = L.polygon(pointsToUse, {
           color: "#000000",
           weight: 2,
           fillColor: selectedColor,
           fillOpacity: selectedOpacity,
         });
 
-        const id = `path_${Date.now()}`;
+        const id = `path_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         (polygon.options as L.PathOptions & { id?: string }).id = id;
 
         drawnItems.addLayer(polygon);
         clearTempDrawing();
         refreshPathsList();
+
+        console.log(`[Polygon Create] Created polygon with id: ${id}, total layers: ${drawnItems.getLayers().length}`);
 
         // Select the new polygon
         setSelectedLayer(polygon);
@@ -625,6 +850,10 @@ export default function SVGCanvasEditor({
       const drawnItems = drawnItemsRef.current;
       if (!map || !drawnItems) return;
 
+      // CRITICAL: Clear any existing layers before loading new ones
+      drawnItems.clearLayers();
+      console.log("[SVG Load] Cleared existing drawnItems layers");
+
       // Parse SVG
       const parser = new DOMParser();
       const svgDoc = parser.parseFromString(svgText, "image/svg+xml");
@@ -633,6 +862,16 @@ export default function SVGCanvasEditor({
       if (!svgElement) {
         throw new Error("Invalid SVG file");
       }
+
+      // CRITICAL: Clean up any duplicate paths in the document FIRST
+      // This ensures originalSvgDocRef always has a clean document
+      const removedDuplicates = cleanupDuplicatePaths(svgDoc);
+      if (removedDuplicates > 0) {
+        console.log(`[SVG Load] Cleaned ${removedDuplicates} duplicate paths from source`);
+      }
+
+      // Store the CLEANED SVG document for later saving
+      originalSvgDocRef.current = svgDoc;
 
       // Get dimensions
       const viewBox = svgElement.getAttribute("viewBox");
@@ -651,31 +890,73 @@ export default function SVGCanvasEditor({
       }
 
       svgHeightRef.current = height;
+      svgWidthRef.current = width;
       const bounds: L.LatLngBoundsExpression = [
         [0, 0],
         [height, width],
       ];
       svgBoundsRef.current = L.latLngBounds(bounds);
 
-      // Add SVG as image overlay
-      const svgBlob = new Blob([svgText], { type: "image/svg+xml" });
+      // Extract paths from "Area Ruangan" layer BEFORE creating the overlay
+      const areaGroup = findAreaRuanganGroup(svgDoc);
+
+      // Hide "Area Ruangan" from the background overlay to prevent visual duplication
+      // The polygons will be rendered as Leaflet layers instead
+      if (areaGroup) {
+        (areaGroup as Element).setAttribute("style", "display:none");
+      }
+
+      // Add SVG (with Area Ruangan hidden) as background image overlay
+      const serializer = new XMLSerializer();
+      const bgSvgContent = serializer.serializeToString(svgDoc);
+      const svgBlob = new Blob([bgSvgContent], { type: "image/svg+xml" });
       const svgUrl = URL.createObjectURL(svgBlob);
-      L.imageOverlay(svgUrl, bounds).addTo(map);
+      currentSvgUrlRef.current = svgUrl;
+      const overlay = L.imageOverlay(svgUrl, bounds).addTo(map);
+      svgOverlayRef.current = overlay;
       map.fitBounds(bounds);
       setZoomLevel(map.getZoom());
 
-      // Extract paths from "Area Ruangan" layer
-      const areaGroup =
-        svgDoc.querySelector('g[inkscape\\:label="Area Ruangan"]') ||
-        Array.from(svgDoc.querySelectorAll("g")).find(
-          (g) => g.getAttribute("inkscape:label") === "Area Ruangan",
-        );
+      // Restore the hidden attribute on the original doc (so saves still work correctly)
+      if (areaGroup) {
+        (areaGroup as Element).removeAttribute("style");
+      }
 
+      // Now load paths as Leaflet polygon layers (they are the only visible copy)
       if (areaGroup) {
         const pathElements = areaGroup.querySelectorAll("path");
+        
+        // AGGRESSIVE DEDUPLICATION:
+        // Track by exact raw ID (handles duplicates with same ID)
+        const loadedExactIds = new Set<string>();
+        // Track by base ID (handles _dup suffixes)
+        const loadedBaseIds = new Set<string>();
+        // Track by geometry signature (handles renamed duplicates)
+        const seenPathSignatures = new Set<string>();
+
+        console.log(`[SVG Load] Found ${pathElements.length} path elements in Area Ruangan`);
 
         pathElements.forEach((pathEl, index) => {
-          const pathId = pathEl.getAttribute("id") || `imported_${index}`;
+          const rawId = pathEl.getAttribute("id") || `imported_${index}`;
+
+          // Skip if we already loaded a path with this EXACT ID
+          if (loadedExactIds.has(rawId)) {
+            console.log(`[SVG Load] Skipping duplicate exact ID: ${rawId}`);
+            return;
+          }
+
+          // Extract the base ID (strip _dupN and _N suffixes)
+          const baseId = rawId.replace(/_dup\d+/g, "").replace(/_\d+$/g, "");
+
+          // Skip if we already loaded a polygon with this base ID
+          if (loadedBaseIds.has(baseId)) {
+            console.log(`[SVG Load] Skipping duplicate base ID: ${rawId} (base: ${baseId})`);
+            return;
+          }
+
+          const d = pathEl.getAttribute("d");
+          if (!d) return;
+
           const style = pathEl.getAttribute("style") || "";
           const fillMatch = style.match(/fill:\s*([^;]+)/);
           const opacityMatch =
@@ -684,23 +965,38 @@ export default function SVGCanvasEditor({
           const color = fillMatch ? fillMatch[1].trim() : "#cccccc";
           const opacity = opacityMatch ? parseFloat(opacityMatch[1]) : 0.6;
 
-          const d = pathEl.getAttribute("d");
-          if (d) {
-            const points = parseSVGPath(d, height);
-            if (points.length >= 3) {
-              const polygon = L.polygon(points, {
-                color: "#000000",
-                weight: 2,
-                fillColor: color,
-                fillOpacity: opacity,
-              });
+          const points = parseSVGPath(d, height);
+          if (points.length >= 3) {
+            // Create a geometry signature to detect exact coordinate duplicates
+            // Using higher precision to catch nearly-identical paths
+            const signature = points
+              .map((p) => `${Math.round(p.lat * 100)},${Math.round(p.lng * 100)}`)
+              .join("|");
 
-              (polygon.options as L.PathOptions & { id?: string }).id = pathId;
-              drawnItems.addLayer(polygon);
+            if (seenPathSignatures.has(signature)) {
+              console.log(`[SVG Load] Skipping geometry duplicate: ${rawId}`);
+              return; // Skip geometry duplicate
             }
+            
+            // Mark all tracking sets
+            loadedExactIds.add(rawId);
+            loadedBaseIds.add(baseId);
+            seenPathSignatures.add(signature);
+
+            const polygon = L.polygon(points, {
+              color: "#000000",
+              weight: 2,
+              fillColor: color,
+              fillOpacity: opacity,
+            });
+
+            // Use the base ID (cleaned) as the polygon ID to avoid duplicate suffixes accumulating
+            (polygon.options as L.PathOptions & { id?: string }).id = baseId;
+            drawnItems.addLayer(polygon);
           }
         });
 
+        console.log(`[SVG Load] Loaded ${drawnItems.getLayers().length} unique polygons`);
         refreshPathsList();
         saveToHistory();
       }
@@ -887,40 +1183,144 @@ export default function SVGCanvasEditor({
     }
   };
 
-  // Save SVG
+  // Save SVG - uses DOM-based approach for reliable manipulation
   const handleSaveSVG = async () => {
     const drawnItems = drawnItemsRef.current;
+    const originalDoc = originalSvgDocRef.current;
     if (!drawnItems) return;
 
     setIsSaving(true);
     setSaveMessage(null);
 
     try {
-      let svgContent = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-      svgContent += `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" viewBox="0 0 1000 ${svgHeightRef.current}">\n`;
-      svgContent += `  <g inkscape:label="Area Ruangan">\n`;
+      let svgContent: string;
 
-      drawnItems.eachLayer((layer) => {
-        if ((layer as L.Polygon).getLatLngs) {
-          const polygon = layer as L.Polygon;
-          const latlngs = polygon.getLatLngs()[0] as L.LatLng[];
-          const options = polygon.options as L.PathOptions & { id?: string };
-          const id = options.id || `path_${Date.now()}`;
-
-          const pathD =
-            latlngs
-              .map((ll, i) => {
-                const x = ll.lng;
-                const y = svgHeightRef.current - ll.lat;
-                return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-              })
-              .join(" ") + " Z";
-
-          svgContent += `    <path id="${id}" d="${pathD}" style="fill:${options.fillColor || "#cccccc"};fill-opacity:${options.fillOpacity || 0.5};stroke:#000000;stroke-width:1" />\n`;
+      if (originalDoc) {
+        // Clone the document to work with
+        const workingDoc = originalDoc.cloneNode(true) as Document;
+        const svgElement = workingDoc.querySelector("svg");
+        
+        if (!svgElement) {
+          throw new Error("SVG element not found in document");
         }
-      });
 
-      svgContent += `  </g>\n</svg>`;
+        // Find or create Area Ruangan group
+        let areaGroup = findAreaRuanganGroup(workingDoc);
+        
+        if (!areaGroup) {
+          // Create new Area Ruangan group
+          areaGroup = workingDoc.createElementNS("http://www.w3.org/2000/svg", "g");
+          areaGroup.setAttribute("inkscape:label", "Area Ruangan");
+          areaGroup.setAttribute("id", "layer_area_ruangan");
+          svgElement.appendChild(areaGroup);
+          console.log("[SVG Save] Created new Area Ruangan group");
+        } else {
+          // Clear ALL existing content in the group
+          while (areaGroup.firstChild) {
+            areaGroup.removeChild(areaGroup.firstChild);
+          }
+          console.log("[SVG Save] Cleared existing Area Ruangan content");
+        }
+
+        // Add current Leaflet layers as new path elements
+        // With DEDUPLICATION based on geometry signature
+        const usedIds = new Set<string>();
+        const seenGeometries = new Set<string>();
+        let pathCount = 0;
+        let skippedDuplicates = 0;
+
+        drawnItems.eachLayer((layer) => {
+          if ((layer as L.Polygon).getLatLngs) {
+            const polygon = layer as L.Polygon;
+            const latlngs = polygon.getLatLngs()[0] as L.LatLng[];
+            const options = polygon.options as L.PathOptions & { id?: string };
+            
+            // Build path d attribute FIRST to check for geometry duplicates
+            const pathD =
+              latlngs
+                .map((ll, i) => {
+                  const x = ll.lng;
+                  const y = svgHeightRef.current - ll.lat;
+                  return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+                })
+                .join(" ") + " Z";
+
+            // Create geometry signature for deduplication
+            const geoSignature = latlngs
+              .map((ll) => `${Math.round(ll.lat * 100)},${Math.round(ll.lng * 100)}`)
+              .join("|");
+
+            // Skip if we already have a polygon with identical geometry
+            if (seenGeometries.has(geoSignature)) {
+              console.log(`[SVG Save] Skipping duplicate geometry for layer`);
+              skippedDuplicates++;
+              return;
+            }
+            seenGeometries.add(geoSignature);
+
+            // Get base ID
+            let id = options.id || `path_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const baseId = id.replace(/_dup\d+/g, "").replace(/_\d+$/g, "");
+            
+            // Ensure unique ID
+            let uniqueId = baseId;
+            if (usedIds.has(baseId)) {
+              let counter = 1;
+              while (usedIds.has(uniqueId)) {
+                uniqueId = `${baseId}_${counter++}`;
+              }
+            }
+            usedIds.add(uniqueId);
+            
+            // Update layer's ID for consistency
+            options.id = uniqueId;
+
+            // Create path element
+            const pathEl = workingDoc.createElementNS("http://www.w3.org/2000/svg", "path");
+            pathEl.setAttribute("id", uniqueId);
+            pathEl.setAttribute("d", pathD);
+            pathEl.setAttribute(
+              "style",
+              `fill:${options.fillColor || "#cccccc"};fill-opacity:${options.fillOpacity || 0.5};stroke:#000000;stroke-width:1`
+            );
+            
+            areaGroup!.appendChild(pathEl);
+            pathCount++;
+          }
+        });
+
+        console.log(`[SVG Save] Added ${pathCount} paths to Area Ruangan (skipped ${skippedDuplicates} duplicates)`);
+
+        // Serialize the modified document
+        const serializer = new XMLSerializer();
+        svgContent = serializer.serializeToString(workingDoc);
+
+        // Verify the output by parsing it again
+        const verifyParser = new DOMParser();
+        const verifyDoc = verifyParser.parseFromString(svgContent, "image/svg+xml");
+        
+        // Check for parse errors
+        const parseError = verifyDoc.querySelector('parsererror');
+        if (parseError) {
+          console.error("[SVG Save] Parse error in generated SVG:", parseError.textContent);
+          throw new Error("Generated SVG is malformed");
+        }
+
+        // Verify path count
+        const verifyAreaGroup = findAreaRuanganGroup(verifyDoc);
+        const verifyPathCount = verifyAreaGroup?.querySelectorAll("path").length || 0;
+        console.log(`[SVG Save] Verification: ${verifyPathCount} paths in saved document`);
+
+        // Update originalSvgDocRef with the verified clean document
+        originalSvgDocRef.current = verifyDoc;
+        
+      } else {
+        // Fallback: create new SVG if original not available
+        svgContent = `<?xml version="1.0" encoding="UTF-8"?>`;
+        svgContent += `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" viewBox="0 0 ${svgWidthRef.current} ${svgHeightRef.current}">`;
+        svgContent += `<g inkscape:label="Area Ruangan">${generatePathsString()}</g>`;
+        svgContent += `</svg>`;
+      }
 
       const response = await fetch("/api/save-svg", {
         method: "POST",
@@ -933,7 +1333,8 @@ export default function SVGCanvasEditor({
       } else {
         setSaveMessage("Gagal menyimpan");
       }
-    } catch {
+    } catch (err) {
+      console.error("Error saving SVG:", err);
       setSaveMessage("Error saat menyimpan");
     } finally {
       setIsSaving(false);
@@ -1261,32 +1662,46 @@ export default function SVGCanvasEditor({
           </div>
 
           {/* Object Actions */}
-          {selectedLayer && (
+          {(selectedLayer || multiSelectedIds.size > 0) && (
             <div className="p-3 border-b border-gray-700">
               <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
-                Objek Terpilih
+                {multiSelectedIds.size > 0
+                  ? `${multiSelectedIds.size} Objek Dipilih`
+                  : "Objek Terpilih"}
               </h3>
               <div className="space-y-1">
-                <div className="grid grid-cols-2 gap-1">
-                  <button
-                    onClick={handleBringToFront}
-                    className="px-2 py-1.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
-                  >
-                    Ke Depan
-                  </button>
-                  <button
-                    onClick={handleSendToBack}
-                    className="px-2 py-1.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
-                  >
-                    Ke Belakang
-                  </button>
-                </div>
+                {selectedLayer && multiSelectedIds.size === 0 && (
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      onClick={handleBringToFront}
+                      className="px-2 py-1.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                    >
+                      Ke Depan
+                    </button>
+                    <button
+                      onClick={handleSendToBack}
+                      className="px-2 py-1.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                    >
+                      Ke Belakang
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={handleDeleteSelected}
                   className="w-full px-2 py-1.5 text-xs bg-red-600 text-white rounded hover:bg-red-700"
                 >
-                  Hapus (Delete)
+                  {multiSelectedIds.size > 0
+                    ? `Hapus ${multiSelectedIds.size} Path (Delete)`
+                    : "Hapus (Delete)"}
                 </button>
+                {multiSelectedIds.size > 0 && (
+                  <button
+                    onClick={() => toggleSelectAll(false)}
+                    className="w-full px-2 py-1.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
+                  >
+                    Batalkan Pilihan
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1294,29 +1709,73 @@ export default function SVGCanvasEditor({
           {/* Paths List */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="p-3 border-b border-gray-700 shrink-0">
-              <h3 className="text-xs font-semibold text-gray-400 uppercase">
-                Daftar Path ({paths.length})
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase">
+                  Daftar Path ({paths.length})
+                </h3>
+                {multiSelectedIds.size > 0 && (
+                  <span className="text-xs text-red-400 font-medium">
+                    {multiSelectedIds.size} dipilih
+                  </span>
+                )}
+              </div>
+              {/* Select all & bulk delete controls */}
+              <div className="flex items-center gap-2 mt-2">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectAllChecked}
+                    onChange={(e) => toggleSelectAll(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-red-500 cursor-pointer"
+                  />
+                  <span className="text-xs text-gray-400">Pilih Semua</span>
+                </label>
+                {multiSelectedIds.size > 0 && (
+                  <button
+                    onClick={handleDeleteSelected}
+                    className="ml-auto px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                  >
+                    Hapus ({multiSelectedIds.size})
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto p-2">
-              {paths.map((path) => (
+              {paths.map((path, index) => (
                 <div
-                  key={path.id}
-                  onClick={() => handlePathClick(path)}
+                  key={`${path.id}_${index}`}
                   className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${
                     selectedPathId === path.id
                       ? "bg-blue-600 text-white"
-                      : "text-gray-300 hover:bg-gray-700"
+                      : multiSelectedIds.has(path.id)
+                        ? "bg-red-900/40 text-red-300"
+                        : "text-gray-300 hover:bg-gray-700"
                   }`}
                 >
+                  <input
+                    type="checkbox"
+                    checked={multiSelectedIds.has(path.id)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleMultiSelect(path, e.target.checked);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-3.5 h-3.5 accent-red-500 cursor-pointer shrink-0"
+                  />
                   <div
                     className="w-4 h-4 rounded border border-gray-500 shrink-0"
                     style={{
                       backgroundColor: path.color,
                       opacity: path.opacity,
                     }}
+                    onClick={() => handlePathClick(path)}
                   />
-                  <span className="text-xs font-mono truncate">{path.id}</span>
+                  <span
+                    className="text-xs font-mono truncate flex-1"
+                    onClick={() => handlePathClick(path)}
+                  >
+                    {path.id}
+                  </span>
                 </div>
               ))}
             </div>
