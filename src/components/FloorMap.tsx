@@ -30,6 +30,7 @@ export default function FloorMap({
   const svgRoomsRef = useRef<SVGRoom[]>([]);
   const [hoveredRoom, setHoveredRoom] = useState<Room | null>(null);
   const [hoveredPathId, setHoveredPathId] = useState<string | null>(null);
+  const [hoveredPathColor, setHoveredPathColor] = useState<string>("#cccccc");
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -241,7 +242,50 @@ export default function FloorMap({
     setZoomLevel(1);
     setPanOffset({ x: 0, y: 0 });
 
-    // Find the "Area Ruangan" layer
+    // Helper function to get fill color from element
+    const getElementFillColor = (element: Element): string | null => {
+      // Check inline style first
+      const style = element.getAttribute("style") || "";
+      const fillMatch = style.match(/fill:\s*([^;]+)/);
+      if (fillMatch && fillMatch[1] !== "none") {
+        return fillMatch[1];
+      }
+
+      // Check fill attribute
+      const fillAttr = element.getAttribute("fill");
+      if (fillAttr && fillAttr !== "none") {
+        return fillAttr;
+      }
+
+      // Check CSS class (for Illustrator SVG)
+      const className = element.getAttribute("class");
+      if (className && svg) {
+        // Try to get computed style
+        const computed = window.getComputedStyle(element as SVGElement);
+        const computedFill = computed.fill;
+        if (computedFill && computedFill !== "none" && computedFill !== "rgb(0, 0, 0)") {
+          return computedFill;
+        }
+
+        // Parse from style tag in SVG
+        const styleTag = svg.querySelector("style");
+        if (styleTag) {
+          const cssText = styleTag.textContent || "";
+          const classNames = className.split(/\s+/);
+          for (const cls of classNames) {
+            const regex = new RegExp(`\\.${cls}\\s*\\{[^}]*fill:\\s*([^;\\}]+)`, "i");
+            const match = cssText.match(regex);
+            if (match && match[1] !== "none") {
+              return match[1].trim();
+            }
+          }
+        }
+      }
+
+      return null;
+    };
+
+    // Find the "Area Ruangan" layer (Inkscape format)
     let areaGroup = svg.querySelector('g[inkscape\\:label="Area Ruangan"]');
     if (!areaGroup) {
       const allGroups = svg.querySelectorAll("g");
@@ -254,100 +298,141 @@ export default function FloorMap({
       }
     }
 
-    if (!areaGroup) {
-      console.warn("Area Ruangan layer not found");
-      return;
-    }
-
-    const paths = areaGroup.querySelectorAll("path");
     const roomElements: SVGRoom[] = [];
     const listeners: Array<{
-      path: SVGPathElement;
+      path: Element;
       type: string;
       handler: EventListener;
     }> = [];
 
-    paths.forEach((path) => {
-      const pathId = path.getAttribute("id");
-      const style = path.getAttribute("style") || "";
-      const fillMatch = style.match(/fill:\s*([^;]+)/);
-      const color = fillMatch ? fillMatch[1] : "#cccccc";
+    // Collection of area elements - support both Inkscape and Illustrator format
+    let areaElements: Element[] = [];
+    let isIllustratorFormat = false;
 
-      if (pathId) {
-        // Store original color
-        path.setAttribute("data-original-color", color);
-
-        // Set initial completely invisible style
-        path.style.fill = color;
-        path.style.opacity = "0";
-        path.style.cursor = "pointer";
-        path.style.transition = "opacity 0.2s ease";
-
-        roomElements.push({ pathId, color, pathElement: path });
-
-        // Event handlers
-        const enterHandler = (e: Event) => {
-          const target = e.target as SVGPathElement;
-          const room = roomsRef.current.find((r) => r.path_id === pathId);
-
-          // Show color on hover
-          target.style.opacity = "0.6";
-          setHoveredPathId(pathId);
-
-          if (room) {
-            setHoveredRoom(room);
-          } else {
-            // Unassigned room - show as hoverable
-            setHoveredRoom(null);
+    if (areaGroup) {
+      // Inkscape format - get paths from Area Ruangan layer
+      areaElements = Array.from(areaGroup.querySelectorAll("path"));
+    } else {
+      // Illustrator format - find polygons, rects, and paths with fill colors
+      // These are typically at the end of the SVG for Illustrator exports
+      isIllustratorFormat = true;
+      const allShapes = svg.querySelectorAll("polygon, rect, path");
+      
+      allShapes.forEach((element) => {
+        const fillColor = getElementFillColor(element);
+        // Only include elements with colored fills (not black lines or transparent)
+        if (fillColor && fillColor !== "#000" && fillColor !== "#000000" && fillColor !== "black") {
+          // Check if it's a closed shape (has some area)
+          if (element.tagName === "polygon" || element.tagName === "rect") {
+            areaElements.push(element);
+          } else if (element.tagName === "path") {
+            // For paths, check if it's likely an area (not a line)
+            const d = element.getAttribute("d") || "";
+            // Area paths typically end with 'z' or 'Z' (closed path)
+            if (d.toLowerCase().includes("z")) {
+              areaElements.push(element);
+            }
           }
-        };
+        }
+      });
+      
+      console.log(`Found ${areaElements.length} area elements in Illustrator format SVG`);
+    }
 
-        const leaveHandler = (e: Event) => {
-          const target = e.target as SVGPathElement;
-          const currentSelectedId = selectedRoomIdRef.current;
+    if (areaElements.length === 0) {
+      console.warn("No area elements found in SVG");
+      return;
+    }
 
-          // Reset opacity based on selection state
-          if (currentSelectedId === pathId) {
-            target.style.opacity = "0.7";
-          } else {
-            target.style.opacity = "0";
-          }
-
-          setHoveredRoom(null);
-          setHoveredPathId(null);
-        };
-
-        const moveHandler = (e: Event) => {
-          const mouseEvent = e as MouseEvent;
-          setTooltipPosition({
-            x: mouseEvent.clientX + 15,
-            y: mouseEvent.clientY + 15,
-          });
-        };
-
-        const clickHandler = () => {
-          const room = roomsRef.current.find((r) => r.path_id === pathId);
-          if (room) {
-            setSelectedRoom(room);
-            setIsModalOpen(true);
-          } else {
-            // Unassigned room - open add modal
-            setUnassignedPathId(pathId);
-            setUnassignedPathColor(color);
-            setIsAddModalOpen(true);
-          }
-        };
-
-        path.addEventListener("mouseenter", enterHandler);
-        path.addEventListener("mouseleave", leaveHandler);
-        path.addEventListener("mousemove", moveHandler);
-        path.addEventListener("click", clickHandler);
-
-        listeners.push({ path, type: "mouseenter", handler: enterHandler });
-        listeners.push({ path, type: "mouseleave", handler: leaveHandler });
-        listeners.push({ path, type: "mousemove", handler: moveHandler });
-        listeners.push({ path, type: "click", handler: clickHandler });
+    // Process each area element (path, polygon, or rect)
+    areaElements.forEach((element, index) => {
+      // Get or generate ID for the element
+      let elementId = element.getAttribute("id");
+      if (!elementId) {
+        // Generate ID for Illustrator elements that don't have one
+        const tagName = element.tagName.toLowerCase();
+        elementId = `${floor.toLowerCase()}-${tagName}-${index}`;
+        element.setAttribute("id", elementId);
       }
+
+      // Get the fill color
+      const color = getElementFillColor(element) || "#cccccc";
+
+      // Store original color
+      element.setAttribute("data-original-color", color);
+
+      // Set initial completely invisible style
+      const svgElement = element as SVGElement;
+      svgElement.style.fill = color;
+      svgElement.style.opacity = "0";
+      svgElement.style.cursor = "pointer";
+      svgElement.style.transition = "opacity 0.2s ease";
+
+      roomElements.push({ pathId: elementId, color, pathElement: element as SVGPathElement });
+
+      // Event handlers
+      const enterHandler = (e: Event) => {
+        const target = e.target as SVGElement;
+        const room = roomsRef.current.find((r) => r.path_id === elementId);
+
+        // Show color on hover
+        target.style.opacity = "0.6";
+        setHoveredPathId(elementId);
+        setHoveredPathColor(color);
+
+        if (room) {
+          setHoveredRoom(room);
+        } else {
+          // Unassigned room - show as hoverable
+          setHoveredRoom(null);
+        }
+      };
+
+      const leaveHandler = (e: Event) => {
+        const target = e.target as SVGElement;
+        const currentSelectedId = selectedRoomIdRef.current;
+
+        // Reset opacity based on selection state
+        if (currentSelectedId === elementId) {
+          target.style.opacity = "0.7";
+        } else {
+          target.style.opacity = "0";
+        }
+
+        setHoveredRoom(null);
+        setHoveredPathId(null);
+      };
+
+      const moveHandler = (e: Event) => {
+        const mouseEvent = e as MouseEvent;
+        setTooltipPosition({
+          x: mouseEvent.clientX + 15,
+          y: mouseEvent.clientY + 15,
+        });
+      };
+
+      const clickHandler = () => {
+        const room = roomsRef.current.find((r) => r.path_id === elementId);
+        if (room) {
+          setSelectedRoom(room);
+          setIsModalOpen(true);
+        } else {
+          // Unassigned room - open add modal
+          setUnassignedPathId(elementId);
+          setUnassignedPathColor(color);
+          setIsAddModalOpen(true);
+        }
+      };
+
+      element.addEventListener("mouseenter", enterHandler);
+      element.addEventListener("mouseleave", leaveHandler);
+      element.addEventListener("mousemove", moveHandler);
+      element.addEventListener("click", clickHandler);
+
+      listeners.push({ path: element, type: "mouseenter", handler: enterHandler });
+      listeners.push({ path: element, type: "mouseleave", handler: leaveHandler });
+      listeners.push({ path: element, type: "mousemove", handler: moveHandler });
+      listeners.push({ path: element, type: "click", handler: clickHandler });
     });
 
     svgRoomsRef.current = roomElements;
@@ -522,6 +607,7 @@ export default function FloorMap({
           room={hoveredRoom}
           pathId={hoveredPathId}
           position={tooltipPosition}
+          pathColor={hoveredPathColor}
         />
       )}
 

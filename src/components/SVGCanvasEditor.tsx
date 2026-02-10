@@ -28,7 +28,7 @@ interface HistoryState {
   }>;
 }
 
-type ToolMode = "pan" | "select" | "polygon" | "rectangle" | "polyline";
+type ToolMode = "pan" | "select" | "polygon" | "rectangle" | "polyline" | "edit";
 
 // Custom CSS for cursors
 const cursorStyles = `
@@ -39,6 +39,7 @@ const cursorStyles = `
   .cursor-rectangle { cursor: crosshair !important; }
   .cursor-polyline { cursor: crosshair !important; }
   .cursor-move { cursor: move !important; }
+  .cursor-edit { cursor: crosshair !important; }
 `;
 
 export default function SVGCanvasEditor({
@@ -88,6 +89,19 @@ export default function SVGCanvasEditor({
   const currentDrawHandlerRef = useRef<any>(null);
   const isDraggingLayerRef = useRef(false);
   const dragStartLatLngRef = useRef<L.LatLng | null>(null);
+
+  // Edit mode state - for editing shape vertices
+  const editVertexMarkersRef = useRef<L.CircleMarker[]>([]);
+  const midpointMarkersRef = useRef<L.CircleMarker[]>([]);
+  const editingLayerRef = useRef<L.Polygon | L.Polyline | null>(null);
+  const draggingVertexIndexRef = useRef<number | null>(null);
+  const isDraggingVertexRef = useRef(false);
+
+  // Snap/Magnet state
+  const [snapEnabled, setSnapEnabled] = useState(true);
+  const [snapTolerance, setSnapTolerance] = useState(10); // pixels
+  const snapGuideLinesRef = useRef<L.Polyline[]>([]);
+  const snapIndicatorRef = useRef<L.CircleMarker | null>(null);
 
   const DEFAULT_ZOOM = 0;
   const svgBoundsRef = useRef<L.LatLngBounds | null>(null);
@@ -326,6 +340,311 @@ export default function SVGCanvasEditor({
     }
   }, []);
 
+  // Clear edit mode markers
+  const clearEditMarkers = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    editVertexMarkersRef.current.forEach((m) => map.removeLayer(m));
+    editVertexMarkersRef.current = [];
+    midpointMarkersRef.current.forEach((m) => map.removeLayer(m));
+    midpointMarkersRef.current = [];
+    editingLayerRef.current = null;
+  }, []);
+
+  // Show vertex markers for editing
+  const showEditMarkers = useCallback((layer: L.Polygon | L.Polyline) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Clear existing markers
+    clearEditMarkers();
+
+    editingLayerRef.current = layer;
+    const latlngs = (layer as L.Polygon).getLatLngs()[0] as L.LatLng[];
+
+    // Create vertex markers (draggable points)
+    latlngs.forEach((latlng, index) => {
+      const marker = L.circleMarker(latlng, {
+        radius: 8,
+        fillColor: "#ffffff",
+        fillOpacity: 1,
+        color: "#ff6600",
+        weight: 3,
+        className: "edit-vertex-marker",
+      }).addTo(map);
+
+      // Store the vertex index in the marker
+      (marker as L.CircleMarker & { vertexIndex: number }).vertexIndex = index;
+
+      // Make marker interactive
+      marker.on("mousedown", (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e);
+        draggingVertexIndexRef.current = index;
+        isDraggingVertexRef.current = true;
+        map.dragging.disable();
+      });
+
+      // Right-click to delete vertex (if more than 3 vertices)
+      marker.on("contextmenu", (e: L.LeafletMouseEvent) => {
+        e.originalEvent.stopPropagation();
+        e.originalEvent.preventDefault();
+        
+        if (latlngs.length > 3) {
+          saveToHistory();
+          const newLatLngs = [...latlngs];
+          newLatLngs.splice(index, 1);
+          (layer as L.Polygon).setLatLngs([newLatLngs]);
+          showEditMarkers(layer); // Refresh markers
+          refreshPathsList();
+        }
+      });
+
+      editVertexMarkersRef.current.push(marker);
+    });
+
+    // Create midpoint markers (for adding new vertices)
+    for (let i = 0; i < latlngs.length; i++) {
+      const current = latlngs[i];
+      const next = latlngs[(i + 1) % latlngs.length];
+      const midLat = (current.lat + next.lat) / 2;
+      const midLng = (current.lng + next.lng) / 2;
+
+      const midMarker = L.circleMarker(L.latLng(midLat, midLng), {
+        radius: 5,
+        fillColor: "#ff6600",
+        fillOpacity: 0.5,
+        color: "#ff6600",
+        weight: 2,
+        className: "edit-midpoint-marker",
+      }).addTo(map);
+
+      // Click to add new vertex at midpoint
+      midMarker.on("click", (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e);
+        saveToHistory();
+        const newLatLngs = [...latlngs];
+        newLatLngs.splice(i + 1, 0, L.latLng(midLat, midLng));
+        (layer as L.Polygon).setLatLngs([newLatLngs]);
+        showEditMarkers(layer); // Refresh markers
+        refreshPathsList();
+      });
+
+      midpointMarkersRef.current.push(midMarker);
+    }
+  }, [clearEditMarkers, saveToHistory, refreshPathsList]);
+
+  // Update vertex position during drag
+  const updateVertexPosition = useCallback((latlng: L.LatLng) => {
+    const layer = editingLayerRef.current;
+    const vertexIndex = draggingVertexIndexRef.current;
+    
+    if (!layer || vertexIndex === null) return;
+
+    const latlngs = (layer as L.Polygon).getLatLngs()[0] as L.LatLng[];
+    latlngs[vertexIndex] = latlng;
+    (layer as L.Polygon).setLatLngs([latlngs]);
+
+    // Update the marker position
+    if (editVertexMarkersRef.current[vertexIndex]) {
+      editVertexMarkersRef.current[vertexIndex].setLatLng(latlng);
+    }
+  }, []);
+
+  // Clear snap guides
+  const clearSnapGuides = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    
+    snapGuideLinesRef.current.forEach((line) => map.removeLayer(line));
+    snapGuideLinesRef.current = [];
+    
+    if (snapIndicatorRef.current) {
+      map.removeLayer(snapIndicatorRef.current);
+      snapIndicatorRef.current = null;
+    }
+  }, []);
+
+  // Get all vertices from all polygons for snapping
+  const getAllVertices = useCallback((): L.LatLng[] => {
+    const drawnItems = drawnItemsRef.current;
+    if (!drawnItems) return [];
+    
+    const vertices: L.LatLng[] = [];
+    drawnItems.eachLayer((layer) => {
+      if ((layer as L.Polygon).getLatLngs) {
+        const latlngs = (layer as L.Polygon).getLatLngs()[0] as L.LatLng[];
+        if (latlngs) {
+          vertices.push(...latlngs);
+        }
+      }
+    });
+    return vertices;
+  }, []);
+
+  // Find snap point - checks for horizontal/vertical alignment and nearby vertices
+  const findSnapPoint = useCallback((point: L.LatLng, lastPoint: L.LatLng | null, excludeCurrentPolygon: boolean = false): {
+    snappedPoint: L.LatLng;
+    snapType: 'horizontal' | 'vertical' | 'vertex' | 'both' | null;
+    guidePoints: { start: L.LatLng; end: L.LatLng }[];
+  } => {
+    const map = mapRef.current;
+    if (!map || !snapEnabled) {
+      return { snappedPoint: point, snapType: null, guidePoints: [] };
+    }
+
+    const tolerance = snapTolerance;
+    let snappedLat = point.lat;
+    let snappedLng = point.lng;
+    let snapType: 'horizontal' | 'vertical' | 'vertex' | 'both' | null = null;
+    const guidePoints: { start: L.LatLng; end: L.LatLng }[] = [];
+
+    // Get all vertices to check against
+    const allVertices = getAllVertices();
+    
+    // Also include points from current polygon drawing
+    const currentPoints = [...polygonPointsRef.current];
+    
+    // Combine all reference points
+    const referencePoints = [...allVertices, ...currentPoints];
+
+    // Check for vertex snap (snap to nearby existing vertex)
+    let closestVertexDist = Infinity;
+    let closestVertex: L.LatLng | null = null;
+    
+    for (const vertex of referencePoints) {
+      // Convert to pixel distance for consistent snapping
+      const pointPx = map.latLngToContainerPoint(point);
+      const vertexPx = map.latLngToContainerPoint(vertex);
+      const dist = Math.sqrt(
+        Math.pow(pointPx.x - vertexPx.x, 2) + 
+        Math.pow(pointPx.y - vertexPx.y, 2)
+      );
+      
+      if (dist < tolerance && dist < closestVertexDist) {
+        closestVertexDist = dist;
+        closestVertex = vertex;
+      }
+    }
+
+    // If close to a vertex, snap to it
+    if (closestVertex) {
+      return {
+        snappedPoint: closestVertex,
+        snapType: 'vertex',
+        guidePoints: []
+      };
+    }
+
+    // Check horizontal alignment (same lat as reference points)
+    let horizontalSnap = false;
+    for (const refPoint of referencePoints) {
+      const pointPx = map.latLngToContainerPoint(point);
+      const refPx = map.latLngToContainerPoint(refPoint);
+      
+      if (Math.abs(pointPx.y - refPx.y) < tolerance) {
+        snappedLat = refPoint.lat;
+        horizontalSnap = true;
+        // Add guide line
+        guidePoints.push({
+          start: L.latLng(refPoint.lat, 0),
+          end: L.latLng(refPoint.lat, svgWidthRef.current)
+        });
+        break;
+      }
+    }
+
+    // Check vertical alignment (same lng as reference points)
+    let verticalSnap = false;
+    for (const refPoint of referencePoints) {
+      const pointPx = map.latLngToContainerPoint(point);
+      const refPx = map.latLngToContainerPoint(refPoint);
+      
+      if (Math.abs(pointPx.x - refPx.x) < tolerance) {
+        snappedLng = refPoint.lng;
+        verticalSnap = true;
+        // Add guide line
+        guidePoints.push({
+          start: L.latLng(0, refPoint.lng),
+          end: L.latLng(svgHeightRef.current, refPoint.lng)
+        });
+        break;
+      }
+    }
+
+    // Also check alignment with last point (for straight lines)
+    if (lastPoint) {
+      const pointPx = map.latLngToContainerPoint(point);
+      const lastPx = map.latLngToContainerPoint(lastPoint);
+      
+      // Check horizontal from last point
+      if (!horizontalSnap && Math.abs(pointPx.y - lastPx.y) < tolerance) {
+        snappedLat = lastPoint.lat;
+        horizontalSnap = true;
+        guidePoints.push({
+          start: L.latLng(lastPoint.lat, 0),
+          end: L.latLng(lastPoint.lat, svgWidthRef.current)
+        });
+      }
+      
+      // Check vertical from last point
+      if (!verticalSnap && Math.abs(pointPx.x - lastPx.x) < tolerance) {
+        snappedLng = lastPoint.lng;
+        verticalSnap = true;
+        guidePoints.push({
+          start: L.latLng(0, lastPoint.lng),
+          end: L.latLng(svgHeightRef.current, lastPoint.lng)
+        });
+      }
+    }
+
+    if (horizontalSnap && verticalSnap) {
+      snapType = 'both';
+    } else if (horizontalSnap) {
+      snapType = 'horizontal';
+    } else if (verticalSnap) {
+      snapType = 'vertical';
+    }
+
+    return {
+      snappedPoint: L.latLng(snappedLat, snappedLng),
+      snapType,
+      guidePoints
+    };
+  }, [snapEnabled, snapTolerance, getAllVertices]);
+
+  // Show snap guides on map
+  const showSnapGuides = useCallback((guidePoints: { start: L.LatLng; end: L.LatLng }[], snappedPoint: L.LatLng, snapType: string | null) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Clear existing guides
+    clearSnapGuides();
+
+    // Add guide lines
+    guidePoints.forEach(({ start, end }) => {
+      const line = L.polyline([start, end], {
+        color: '#00ff00',
+        weight: 1,
+        dashArray: '5, 5',
+        opacity: 0.7
+      }).addTo(map);
+      snapGuideLinesRef.current.push(line);
+    });
+
+    // Add snap indicator at snapped point
+    if (snapType) {
+      const indicator = L.circleMarker(snappedPoint, {
+        radius: 8,
+        fillColor: '#00ff00',
+        fillOpacity: 0.5,
+        color: '#00ff00',
+        weight: 2
+      }).addTo(map);
+      snapIndicatorRef.current = indicator;
+    }
+  }, [clearSnapGuides]);
+
   // Format floor title
   const formatFloorTitle = (floor: string): string => {
     const upper = floor.toUpperCase();
@@ -481,6 +800,7 @@ export default function SVGCanvasEditor({
       if (e.key === "Escape") {
         // Cancel current drawing
         clearTempDrawing();
+        clearEditMarkers();
         setToolMode("pan");
         setSelectedLayer(null);
         setSelectedPathId(null);
@@ -509,7 +829,7 @@ export default function SVGCanvasEditor({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [selectedLayer, multiSelectedLayers, handleUndo, highlightLayer, handleDeleteSelected]);
+  }, [selectedLayer, multiSelectedLayers, handleUndo, highlightLayer, handleDeleteSelected, clearEditMarkers]);
 
   // Handle tool mode changes
   useEffect(() => {
@@ -518,6 +838,11 @@ export default function SVGCanvasEditor({
 
     // Clear temp drawing
     clearTempDrawing();
+
+    // Clear edit markers when leaving edit mode
+    if (toolMode !== "edit") {
+      clearEditMarkers();
+    }
 
     // Disable current handler
     if (currentDrawHandlerRef.current) {
@@ -534,6 +859,7 @@ export default function SVGCanvasEditor({
       "cursor-rectangle",
       "cursor-polyline",
       "cursor-move",
+      "cursor-edit",
     );
 
     if (toolMode === "pan") {
@@ -542,6 +868,13 @@ export default function SVGCanvasEditor({
     } else if (toolMode === "select") {
       map.dragging.disable();
       container.classList.add("cursor-select");
+    } else if (toolMode === "edit") {
+      map.dragging.disable();
+      container.classList.add("cursor-edit");
+      // Show edit markers for selected layer
+      if (selectedLayer) {
+        showEditMarkers(selectedLayer);
+      }
     } else if (toolMode === "polygon") {
       map.dragging.disable();
       container.classList.add("cursor-polygon");
@@ -573,7 +906,7 @@ export default function SVGCanvasEditor({
       handler.enable();
       currentDrawHandlerRef.current = handler;
     }
-  }, [toolMode, selectedColor, selectedOpacity]);
+  }, [toolMode, selectedColor, selectedOpacity, selectedLayer, clearEditMarkers, showEditMarkers]);
 
   // Clear temporary drawing elements
   const clearTempDrawing = () => {
@@ -586,6 +919,7 @@ export default function SVGCanvasEditor({
     tempLinesRef.current = [];
     polygonPointsRef.current = [];
     lastPointRef.current = null;
+    clearSnapGuides();
   };
 
   // Handle map click for polygon drawing
@@ -598,8 +932,13 @@ export default function SVGCanvasEditor({
       if (toolMode === "polygon") {
         let point = e.latlng;
 
-        // Axis lock when Ctrl is pressed
-        if (isCtrlPressedRef.current && lastPointRef.current) {
+        // Apply snap if enabled
+        if (snapEnabled) {
+          const { snappedPoint } = findSnapPoint(point, lastPointRef.current);
+          point = snappedPoint;
+        }
+        // Axis lock when Ctrl is pressed (overrides snap)
+        else if (isCtrlPressedRef.current && lastPointRef.current) {
           const lastPoint = lastPointRef.current;
           const dx = Math.abs(point.lng - lastPoint.lng);
           const dy = Math.abs(point.lat - lastPoint.lat);
@@ -612,6 +951,9 @@ export default function SVGCanvasEditor({
             point = L.latLng(point.lat, lastPoint.lng);
           }
         }
+
+        // Clear snap guides after click
+        clearSnapGuides();
 
         polygonPointsRef.current.push(point);
         lastPointRef.current = point;
@@ -639,7 +981,7 @@ export default function SVGCanvasEditor({
           ).addTo(map);
           tempLinesRef.current.push(line);
         }
-      } else if (toolMode === "select" || toolMode === "pan") {
+      } else if (toolMode === "select" || toolMode === "pan" || toolMode === "edit") {
         // Check if clicked on a layer
         let clickedLayer: L.Polygon | L.Polyline | null = null;
         drawnItems.eachLayer((layer) => {
@@ -654,6 +996,24 @@ export default function SVGCanvasEditor({
         });
 
         if (clickedLayer) {
+          // In edit mode, if clicking a different layer, switch to it
+          if (toolMode === "edit" && clickedLayer !== selectedLayer) {
+            clearEditMarkers();
+            setSelectedLayer(clickedLayer);
+            const options = (clickedLayer as L.Path).options as L.PathOptions & {
+              id?: string;
+            };
+            setSelectedPathId(options.id || null);
+            highlightLayer(clickedLayer);
+            showEditMarkers(clickedLayer);
+            return;
+          }
+          
+          // In edit mode, clicking on the same layer does nothing (let vertex handlers work)
+          if (toolMode === "edit") {
+            return;
+          }
+
           setSelectedLayer(clickedLayer);
           const options = (clickedLayer as L.Path).options as L.PathOptions & {
             id?: string;
@@ -673,7 +1033,11 @@ export default function SVGCanvasEditor({
 
           // Prepare for dragging
           map.getContainer().classList.add("cursor-move");
-        } else if (toolMode === "select") {
+        } else {
+          // Clicked on empty area
+          if (toolMode === "edit") {
+            clearEditMarkers();
+          }
           setSelectedLayer(null);
           setSelectedPathId(null);
           highlightLayer(null);
@@ -751,7 +1115,74 @@ export default function SVGCanvasEditor({
     saveToHistory,
     refreshPathsList,
     highlightLayer,
+    clearEditMarkers,
+    snapEnabled,
+    findSnapPoint,
+    clearSnapGuides,
   ]);
+
+  // Handle mousemove for snap preview during polygon drawing
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const handleMouseMove = (e: L.LeafletMouseEvent) => {
+      if (toolMode === "polygon" && snapEnabled && polygonPointsRef.current.length > 0) {
+        const { snappedPoint, snapType, guidePoints } = findSnapPoint(e.latlng, lastPointRef.current);
+        showSnapGuides(guidePoints, snappedPoint, snapType);
+      }
+    };
+
+    map.on("mousemove", handleMouseMove);
+
+    return () => {
+      map.off("mousemove", handleMouseMove);
+    };
+  }, [toolMode, snapEnabled, findSnapPoint, showSnapGuides]);
+
+  // Handle vertex dragging in edit mode
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const handleMouseMove = (e: L.LeafletMouseEvent) => {
+      if (toolMode === "edit" && isDraggingVertexRef.current) {
+        let point = e.latlng;
+        
+        // Apply snap for vertex editing
+        if (snapEnabled) {
+          const { snappedPoint, snapType, guidePoints } = findSnapPoint(point, null);
+          point = snappedPoint;
+          showSnapGuides(guidePoints, snappedPoint, snapType);
+        }
+        
+        updateVertexPosition(point);
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (toolMode === "edit" && isDraggingVertexRef.current) {
+        isDraggingVertexRef.current = false;
+        draggingVertexIndexRef.current = null;
+        map.dragging.disable();
+        clearSnapGuides();
+        saveToHistory();
+        
+        // Refresh midpoint markers after vertex drag
+        if (editingLayerRef.current) {
+          showEditMarkers(editingLayerRef.current);
+        }
+      }
+    };
+
+    map.on("mousemove", handleMouseMove);
+    map.on("mouseup", handleMouseUp);
+
+    return () => {
+      map.off("mousemove", handleMouseMove);
+      map.off("mouseup", handleMouseUp);
+    };
+  }, [toolMode, updateVertexPosition, saveToHistory, showEditMarkers, snapEnabled, findSnapPoint, showSnapGuides, clearSnapGuides]);
 
   // Handle layer dragging
   useEffect(() => {
@@ -906,7 +1337,59 @@ export default function SVGCanvasEditor({
         (areaGroup as Element).setAttribute("style", "display:none");
       }
 
-      // Add SVG (with Area Ruangan hidden) as background image overlay
+      // For Illustrator SVGs: Also hide filled polygon elements
+      // These will be loaded as Leaflet layers instead
+      const illustratorPolygons = !areaGroup ? svgDoc.querySelectorAll("polygon") : null;
+      const hiddenPolygons: Element[] = [];
+      
+      // Parse CSS classes to find fills - reusable for both hiding and loading
+      const cssClasses: Record<string, { fill?: string }> = {};
+      if (!areaGroup) {
+        const styleEl = svgDoc.querySelector("defs > style");
+        const cssText = styleEl?.textContent || "";
+        
+        // Split CSS by closing brace to get each rule block
+        const cssBlocks = cssText.split("}");
+        for (const block of cssBlocks) {
+          const parts = block.split("{");
+          if (parts.length < 2) continue;
+          
+          const selectorsStr = parts[0].trim();
+          const rulesStr = parts[1].trim();
+          
+          const fillMatch = rulesStr.match(/fill:\s*([^;}\s]+)/);
+          if (!fillMatch) continue;
+          
+          const selectors = selectorsStr.split(",").map(s => s.trim());
+          for (const selector of selectors) {
+            const classMatch = selector.match(/\.([a-zA-Z0-9_-]+)/);
+            if (classMatch) {
+              const className = classMatch[1];
+              cssClasses[className] = {
+                ...cssClasses[className],
+                fill: fillMatch[1].trim(),
+              };
+            }
+          }
+        }
+        console.log(`[SVG Load] Parsed ${Object.keys(cssClasses).length} CSS classes for fills`);
+      }
+      
+      if (illustratorPolygons) {
+        illustratorPolygons.forEach((polyEl) => {
+          const className = polyEl.getAttribute("class") || "";
+          const cssInfo = cssClasses[className];
+          
+          // Only hide polygons that have fill (colored areas, not fill:none)
+          if (cssInfo && cssInfo.fill && cssInfo.fill !== "none") {
+            polyEl.setAttribute("style", "display:none");
+            hiddenPolygons.push(polyEl);
+          }
+        });
+        console.log(`[SVG Load] Hidden ${hiddenPolygons.length} Illustrator polygons for overlay`);
+      }
+
+      // Add SVG (with Area Ruangan and Illustrator polygons hidden) as background image overlay
       const serializer = new XMLSerializer();
       const bgSvgContent = serializer.serializeToString(svgDoc);
       const svgBlob = new Blob([bgSvgContent], { type: "image/svg+xml" });
@@ -921,6 +1404,10 @@ export default function SVGCanvasEditor({
       if (areaGroup) {
         (areaGroup as Element).removeAttribute("style");
       }
+      // Restore hidden Illustrator polygons
+      hiddenPolygons.forEach((polyEl) => {
+        polyEl.removeAttribute("style");
+      });
 
       // Now load paths as Leaflet polygon layers (they are the only visible copy)
       if (areaGroup) {
@@ -996,10 +1483,89 @@ export default function SVGCanvasEditor({
           }
         });
 
-        console.log(`[SVG Load] Loaded ${drawnItems.getLayers().length} unique polygons`);
-        refreshPathsList();
-        saveToHistory();
+        console.log(`[SVG Load] Loaded ${drawnItems.getLayers().length} unique polygons from Area Ruangan`);
+      } else {
+        // FALLBACK: For Adobe Illustrator SVGs without "Area Ruangan" group
+        // Try to load <polygon> elements with fill colors (colored areas)
+        console.log("[SVG Load] No Area Ruangan group found, trying to load Illustrator polygons...");
+        
+        // Use the cssClasses already parsed earlier for hiding
+        const polygonElements = svgDoc.querySelectorAll("polygon");
+        const seenSignatures = new Set<string>();
+        let loadedCount = 0;
+
+        console.log(`[SVG Load] Found ${polygonElements.length} polygon elements, using ${Object.keys(cssClasses).length} CSS classes`);
+
+        polygonElements.forEach((polyEl, index) => {
+          const pointsAttr = polyEl.getAttribute("points");
+          if (!pointsAttr) return;
+
+          // Get class and extract color
+          const className = polyEl.getAttribute("class") || "";
+          const cssInfo = cssClasses[className] || {};
+          
+          // Skip polygons without fill or with fill:none (outlines only)
+          if (!cssInfo.fill || cssInfo.fill === "none") {
+            return;
+          }
+
+          const color = cssInfo.fill;
+
+          // Parse points attribute - handle both "x,y x,y" and "x y x y" formats
+          let coords: Array<{x: number, y: number}> = [];
+          
+          // Check if comma-separated pairs or space-separated values
+          if (pointsAttr.includes(",")) {
+            // Format: "x1,y1 x2,y2 x3,y3"
+            coords = pointsAttr.trim().split(/\s+/).map(pair => {
+              const [x, y] = pair.split(",").map(Number);
+              return { x, y };
+            }).filter(p => !isNaN(p.x) && !isNaN(p.y));
+          } else {
+            // Format: "x1 y1 x2 y2 x3 y3"
+            const values = pointsAttr.trim().split(/\s+/).map(Number);
+            for (let i = 0; i < values.length - 1; i += 2) {
+              if (!isNaN(values[i]) && !isNaN(values[i + 1])) {
+                coords.push({ x: values[i], y: values[i + 1] });
+              }
+            }
+          }
+
+          if (coords.length < 3) {
+            return;
+          }
+
+          // Convert to Leaflet LatLng
+          const points = coords.map(c => L.latLng(height - c.y, c.x));
+
+          // Create signature for deduplication
+          const signature = points
+            .map((p) => `${Math.round(p.lat * 10)},${Math.round(p.lng * 10)}`)
+            .join("|");
+
+          if (seenSignatures.has(signature)) {
+            return;
+          }
+          seenSignatures.add(signature);
+
+          const polygon = L.polygon(points, {
+            color: "#000000",
+            weight: 2,
+            fillColor: color,
+            fillOpacity: 0.5,
+          });
+
+          const id = `poly_${floorName}_${index}`;
+          (polygon.options as L.PathOptions & { id?: string }).id = id;
+          drawnItems.addLayer(polygon);
+          loadedCount++;
+        });
+
+        console.log(`[SVG Load] Loaded ${loadedCount} polygons from Illustrator SVG`);
       }
+
+      refreshPathsList();
+      saveToHistory();
     } catch (err) {
       console.error("Error loading SVG:", err);
       setError(err instanceof Error ? err.message : "Gagal memuat SVG");
@@ -1214,6 +1780,51 @@ export default function SVGCanvasEditor({
           areaGroup.setAttribute("id", "layer_area_ruangan");
           svgElement.appendChild(areaGroup);
           console.log("[SVG Save] Created new Area Ruangan group");
+          
+          // For Illustrator SVGs: Remove old polygon elements that we've converted to paths
+          // This prevents duplicate shapes in the saved SVG
+          const oldPolygons = workingDoc.querySelectorAll("polygon");
+          let removedCount = 0;
+          
+          // Parse CSS to identify which classes have fill (not fill:none)
+          const styleEl = workingDoc.querySelector("defs > style");
+          const cssText = styleEl?.textContent || "";
+          
+          // Parse CSS classes - handle grouped selectors
+          const fillClasses: Record<string, string> = {};
+          const cssBlocks = cssText.split("}");
+          for (const block of cssBlocks) {
+            const parts = block.split("{");
+            if (parts.length < 2) continue;
+            
+            const selectorsStr = parts[0].trim();
+            const rulesStr = parts[1].trim();
+            
+            const fillMatch = rulesStr.match(/fill:\s*([^;}\s]+)/);
+            if (!fillMatch) continue;
+            
+            const selectors = selectorsStr.split(",").map(s => s.trim());
+            for (const selector of selectors) {
+              const classMatch = selector.match(/\.([a-zA-Z0-9_-]+)/);
+              if (classMatch) {
+                fillClasses[classMatch[1]] = fillMatch[1].trim();
+              }
+            }
+          }
+          
+          oldPolygons.forEach((polyEl) => {
+            const className = polyEl.getAttribute("class") || "";
+            const fill = fillClasses[className];
+            // Only remove polygons that have fill (colored areas, not fill:none)
+            if (fill && fill !== "none") {
+              polyEl.remove();
+              removedCount++;
+            }
+          });
+          
+          if (removedCount > 0) {
+            console.log(`[SVG Save] Removed ${removedCount} old Illustrator polygon elements`);
+          }
         } else {
           // Clear ALL existing content in the group
           while (areaGroup.firstChild) {
@@ -1329,6 +1940,8 @@ export default function SVGCanvasEditor({
       });
 
       if (response.ok) {
+        // Also sync colors to database
+        await syncColorsToDatabase();
         setSaveMessage("Berhasil disimpan!");
       } else {
         setSaveMessage("Gagal menyimpan");
@@ -1339,6 +1952,55 @@ export default function SVGCanvasEditor({
     } finally {
       setIsSaving(false);
       setTimeout(() => setSaveMessage(null), 2000);
+    }
+  };
+
+  // Sync polygon colors to database
+  const syncColorsToDatabase = async () => {
+    const drawnItems = drawnItemsRef.current;
+    if (!drawnItems) return;
+
+    const colorUpdates: Array<{ pathId: string; color: string }> = [];
+
+    drawnItems.eachLayer((layer) => {
+      if ((layer as L.Polygon).getLatLngs) {
+        const polygon = layer as L.Polygon;
+        const options = polygon.options as L.PathOptions & { id?: string };
+        const pathId = options.id;
+        const color = options.fillColor as string;
+
+        if (pathId && color) {
+          colorUpdates.push({ pathId, color });
+        }
+      }
+    });
+
+    if (colorUpdates.length === 0) return;
+
+    console.log(`[Color Sync] Syncing ${colorUpdates.length} colors to database...`);
+
+    // Fetch rooms for this floor and update colors
+    try {
+      const roomsResponse = await fetch(`/api/rooms?floor=${floor}`);
+      if (!roomsResponse.ok) return;
+
+      const rooms = await roomsResponse.json();
+
+      // For each room, check if its path_id matches any of our polygons
+      for (const room of rooms) {
+        const colorUpdate = colorUpdates.find(c => c.pathId === room.path_id);
+        if (colorUpdate && colorUpdate.color !== room.color) {
+          // Update the room's color in database
+          await fetch(`/api/rooms/${room.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ color: colorUpdate.color }),
+          });
+          console.log(`[Color Sync] Updated room ${room.id} color to ${colorUpdate.color}`);
+        }
+      }
+    } catch (err) {
+      console.error("[Color Sync] Error syncing colors:", err);
     }
   };
 
@@ -1617,10 +2279,96 @@ export default function SVGCanvasEditor({
                 </svg>
                 <span className="text-[10px]">Line</span>
               </button>
+              <button
+                onClick={() => {
+                  if (selectedLayer) {
+                    setToolMode("edit");
+                  }
+                }}
+                disabled={!selectedLayer}
+                className={`p-2 rounded flex flex-col items-center gap-1 ${
+                  toolMode === "edit"
+                    ? "bg-green-600 text-white"
+                    : selectedLayer
+                      ? "text-gray-300 hover:bg-gray-700"
+                      : "text-gray-500 cursor-not-allowed opacity-50"
+                }`}
+                title="Edit Shape - Ubah bentuk polygon (pilih area terlebih dahulu)"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  />
+                </svg>
+                <span className="text-[10px]">Edit</span>
+              </button>
             </div>
             <p className="text-[10px] text-gray-500 mt-2">
-              Polygon: Klik untuk titik, double-click selesai. Ctrl = lock axis
+              Polygon: Klik untuk titik, double-click selesai
             </p>
+            {toolMode === "edit" && (
+              <div className="mt-2 p-2 bg-green-900/30 rounded text-[10px] text-green-300">
+                <strong>Mode Edit Shape:</strong>
+                <ul className="mt-1 space-y-0.5">
+                  <li>• Drag titik putih untuk mengubah bentuk</li>
+                  <li>• Klik titik orange untuk tambah vertex</li>
+                  <li>• Klik kanan titik untuk hapus vertex</li>
+                  <li>• Tekan Esc untuk keluar mode edit</li>
+                </ul>
+              </div>
+            )}
+
+            {/* Snap/Magnet Toggle */}
+            <div className="mt-3 pt-3 border-t border-gray-700">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                  </svg>
+                  <span className="text-xs font-medium text-gray-300">Snap / Magnet</span>
+                </div>
+                <button
+                  onClick={() => setSnapEnabled(!snapEnabled)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
+                    snapEnabled ? "bg-green-600" : "bg-gray-600"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      snapEnabled ? "left-5" : "left-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+              {snapEnabled && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-gray-400">Toleransi</span>
+                    <span className="text-[10px] text-gray-400">{snapTolerance}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="30"
+                    step="1"
+                    value={snapTolerance}
+                    onChange={(e) => setSnapTolerance(parseInt(e.target.value))}
+                    className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <p className="text-[10px] text-gray-500">
+                    Garis akan otomatis snap ke horizontal/vertical dan titik terdekat
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Colors */}

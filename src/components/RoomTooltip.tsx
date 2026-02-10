@@ -6,12 +6,14 @@ interface RoomTooltipProps {
   room: Room | null;
   pathId: string | null;
   position: { x: number; y: number };
+  pathColor?: string; // Color from the SVG path for unassigned rooms
 }
 
 export default function RoomTooltip({
   room,
   pathId,
   position,
+  pathColor,
 }: RoomTooltipProps) {
   const statusLabels = {
     available: "Tersedia",
@@ -37,7 +39,10 @@ export default function RoomTooltip({
       >
         <div className="bg-white border border-gray-300 rounded-lg shadow-lg p-3 max-w-xs">
           <div className="flex items-start gap-2 mb-2">
-            <div className="w-4 h-4 rounded shrink-0 mt-0.5 border border-gray-300 bg-gray-200" />
+            <div
+              className="w-4 h-4 rounded shrink-0 mt-0.5 border border-gray-300"
+              style={{ backgroundColor: pathColor || "#cccccc" }}
+            />
             <div>
               <h3 className="font-semibold text-gray-500 text-sm leading-tight">
                 Ruangan Belum Di-assign

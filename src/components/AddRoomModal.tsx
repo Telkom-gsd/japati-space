@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 import type { Room } from "@/types/room";
 
 interface AddRoomModalProps {
@@ -11,6 +11,102 @@ interface AddRoomModalProps {
   onClose: () => void;
   onSave: (room: Partial<Room>) => void;
 }
+
+// Icons as inline SVG components
+const Icons = {
+  Room: () => (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+    </svg>
+  ),
+  User: () => (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+    </svg>
+  ),
+  Building: () => (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+    </svg>
+  ),
+  Close: () => (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  ),
+};
+
+// InputField component - defined outside to prevent re-creation
+interface InputFieldProps {
+  label: string;
+  name: string;
+  type?: string;
+  value: string;
+  placeholder?: string;
+  step?: string;
+  min?: string;
+  required?: boolean;
+  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
+}
+
+const InputField = ({ label, name, type = "text", value, placeholder, step, min, required, onChange }: InputFieldProps) => (
+  <div>
+    <label className="block text-xs font-medium text-gray-500 mb-1">
+      {label} {required && <span className="text-red-500">*</span>}
+    </label>
+    <input
+      type={type}
+      name={name}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      step={step}
+      min={min}
+      required={required}
+      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors"
+    />
+  </div>
+);
+
+// TextAreaField component - defined outside to prevent re-creation
+interface TextAreaFieldProps {
+  label: string;
+  name: string;
+  value: string;
+  placeholder?: string;
+  rows?: number;
+  onChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
+}
+
+const TextAreaField = ({ label, name, value, placeholder, rows = 2, onChange }: TextAreaFieldProps) => (
+  <div>
+    <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
+    <textarea
+      name={name}
+      value={value}
+      onChange={onChange}
+      rows={rows}
+      placeholder={placeholder}
+      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors resize-none"
+    />
+  </div>
+);
+
+// SectionHeader component
+interface SectionHeaderProps {
+  icon: () => React.ReactElement;
+  title: string;
+  color: string;
+}
+
+const SectionHeader = ({ icon: Icon, title, color }: SectionHeaderProps) => (
+  <div className={`flex items-center gap-2 mb-3 pb-2 border-b ${color}`}>
+    <div className={color.includes("text-") ? "" : "text-gray-500"}>
+      <Icon />
+    </div>
+    <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
+  </div>
+);
 
 export default function AddRoomModal({
   pathId,
@@ -37,27 +133,13 @@ export default function AddRoomModal({
     address: "",
     objek_sewa: "",
     peruntukan: "",
-    jenis_dokumen: "",
-    judul_dokumen: "",
-    no_tgl_dokumen: "",
-    link_dok_evidence: "",
-    contract_start: "",
-    contract_end: "",
-    contract_duration_months: "",
-    br_area: "",
-    sc_area: "",
-    satuan: "",
-    br_price_per_m2: "",
-    sc_price_per_m2: "",
   });
   const [isSaving, setIsSaving] = useState(false);
 
   if (!isOpen) return null;
 
   const handleInputChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >,
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -87,18 +169,6 @@ export default function AddRoomModal({
       address: formData.address || null,
       objek_sewa: formData.objek_sewa || null,
       peruntukan: formData.peruntukan || null,
-      jenis_dokumen: formData.jenis_dokumen || null,
-      judul_dokumen: formData.judul_dokumen || null,
-      no_tgl_dokumen: formData.no_tgl_dokumen || null,
-      link_dok_evidence: formData.link_dok_evidence || null,
-      contract_start: formData.contract_start || null,
-      contract_end: formData.contract_end || null,
-      contract_duration_months: formData.contract_duration_months ? parseFloat(formData.contract_duration_months) : null,
-      br_area: formData.br_area ? parseFloat(formData.br_area) : null,
-      sc_area: formData.sc_area ? parseFloat(formData.sc_area) : null,
-      satuan: formData.satuan || null,
-      br_price_per_m2: formData.br_price_per_m2 ? parseFloat(formData.br_price_per_m2) : null,
-      sc_price_per_m2: formData.sc_price_per_m2 ? parseFloat(formData.sc_price_per_m2) : null,
     };
 
     await onSave(roomData);
@@ -106,356 +176,144 @@ export default function AddRoomModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">
-              Tambah Data Ruangan
-            </h2>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <svg
-                className="w-5 h-5 text-gray-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
-
-          <div className="mb-4 p-3 bg-gray-100 rounded-lg">
-            <p className="text-sm text-gray-600">
-              Path ID: <span className="font-mono text-gray-800">{pathId}</span>
-            </p>
-            <p className="text-sm text-gray-600">
-              Lantai:{" "}
-              <span className="font-semibold text-gray-800">
-                {floor.toUpperCase()}
-              </span>
-            </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-sm text-gray-600">Warna:</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
               <div
-                className="w-6 h-6 rounded border border-gray-300"
+                className="w-10 h-10 rounded-lg shadow-sm border border-gray-200"
                 style={{ backgroundColor: color }}
               />
-              <span className="text-sm font-mono text-gray-600">{color}</span>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Tambah Data Ruangan</h2>
+                <p className="text-sm text-gray-500">{floor.toUpperCase()} • {pathId}</p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-400 hover:text-gray-600"
+            >
+              <Icons.Close />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
+          <div className="grid grid-cols-2 gap-6">
+            {/* Left Column */}
+            <div className="space-y-6">
+              {/* Room Info Section */}
+              <div className="bg-gray-50/50 rounded-xl p-4 border border-gray-100">
+                <SectionHeader icon={Icons.Room} title="Informasi Ruangan" color="border-gray-200 text-gray-600" />
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputField label="Kode Ruangan" name="code" value={formData.code} placeholder="Contoh: R101" required onChange={handleInputChange} />
+                    <InputField label="Nama Ruangan" name="name" value={formData.name} placeholder="Contoh: Ruang Meeting A" required onChange={handleInputChange} />
+                  </div>
+                  <TextAreaField label="Deskripsi" name="description" value={formData.description} placeholder="Deskripsi ruangan..." onChange={handleInputChange} />
+                  <div className="grid grid-cols-3 gap-3">
+                    <InputField label="Luas (m²)" name="area_sqm" type="number" value={formData.area_sqm} step="0.1" min="0" onChange={handleInputChange} />
+                    <InputField label="Kapasitas" name="capacity" value={formData.capacity} onChange={handleInputChange} />
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                      <select
+                        name="status"
+                        value={formData.status}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors"
+                      >
+                        <option value="available">Tersedia</option>
+                        <option value="occupied">Terpakai</option>
+                        <option value="maintenance">Maintenance</option>
+                      </select>
+                    </div>
+                  </div>
+                  <InputField label="Fasilitas" name="facilities" value={formData.facilities} placeholder="AC, Proyektor, Whiteboard (pisahkan dengan koma)" onChange={handleInputChange} />
+                </div>
+              </div>
+
+              {/* PIC Section */}
+              <div className="bg-purple-50/30 rounded-xl p-4 border border-purple-100">
+                <SectionHeader icon={Icons.User} title="Penanggung Jawab" color="border-purple-200 text-purple-600" />
+                <div className="grid grid-cols-2 gap-3">
+                  <InputField label="PIC" name="pic" value={formData.pic} placeholder="Nama penanggung jawab" onChange={handleInputChange} />
+                  <InputField label="No. Telepon" name="phone" type="tel" value={formData.phone} placeholder="08xx-xxxx-xxxx" onChange={handleInputChange} />
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column */}
+            <div className="space-y-6">
+              {/* Tenant Section */}
+              <div className="bg-blue-50/30 rounded-xl p-4 border border-blue-100">
+                <SectionHeader icon={Icons.Building} title="Data Tenant" color="border-blue-200 text-blue-600" />
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputField label="Nama Tenant" name="tenant_name" value={formData.tenant_name} placeholder="Nama tenant" onChange={handleInputChange} />
+                    <InputField label="Status Perusahaan" name="company_status" value={formData.company_status} placeholder="Status perusahaan" onChange={handleInputChange} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputField label="Cost Center" name="cost_center" value={formData.cost_center} placeholder="Cost center" onChange={handleInputChange} />
+                    <InputField label="Witel" name="witel" value={formData.witel} placeholder="Witel" onChange={handleInputChange} />
+                  </div>
+                  <TextAreaField label="Alamat" name="address" value={formData.address} placeholder="Alamat lengkap" onChange={handleInputChange} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputField label="Objek Sewa" name="objek_sewa" value={formData.objek_sewa} placeholder="Objek sewa" onChange={handleInputChange} />
+                    <InputField label="Peruntukan" name="peruntukan" value={formData.peruntukan} placeholder="Peruntukan" onChange={handleInputChange} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Info Note */}
+              <div className="bg-amber-50/50 rounded-xl p-4 border border-amber-200">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
+                    <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-amber-800">Catatan</h4>
+                    <p className="text-xs text-amber-700 mt-1">
+                      Data kontrak dapat ditambahkan setelah ruangan disimpan. Anda bisa menambahkan multiple kontrak dengan harga BR/SC yang berbeda.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Meta Info */}
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <span>Path ID: <span className="font-mono text-gray-500">{pathId}</span></span>
+                  <span>•</span>
+                  <span>Lantai: <span className="font-semibold text-gray-500">{floor.toUpperCase()}</span></span>
+                </div>
+              </div>
             </div>
           </div>
+        </form>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Kode Ruangan *
-                </label>
-                <input
-                  type="text"
-                  name="code"
-                  value={formData.code}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Contoh: R101"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nama Ruangan *
-                </label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Contoh: Ruang Meeting A"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Deskripsi
-              </label>
-              <textarea
-                name="description"
-                value={formData.description}
-                onChange={handleInputChange}
-                rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                placeholder="Deskripsi ruangan..."
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Luas (m²)
-                </label>
-                <input
-                  type="number"
-                  name="area_sqm"
-                  value={formData.area_sqm}
-                  onChange={handleInputChange}
-                  step="0.1"
-                  min="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Kapasitas
-                </label>
-                <input
-                  type="number"
-                  name="capacity"
-                  value={formData.capacity}
-                  onChange={handleInputChange}
-                  min="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Status
-                </label>
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                >
-                  <option value="available">Tersedia</option>
-                  <option value="occupied">Terpakai</option>
-                  <option value="maintenance">Maintenance</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Fasilitas
-              </label>
-              <input
-                type="text"
-                name="facilities"
-                value={formData.facilities}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                placeholder="AC, Proyektor, Whiteboard (pisahkan dengan koma)"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  PIC
-                </label>
-                <input
-                  type="text"
-                  name="pic"
-                  value={formData.pic}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Nama penanggung jawab"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  No. Telepon
-                </label>
-                <input
-                  type="tel"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="08xx-xxxx-xxxx"
-                />
-              </div>
-            </div>
-
-            {/* Data Tenant */}
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-gray-800 mb-3">Data Tenant</h3>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Tenant</label>
-                <input type="text" name="tenant_name" value={formData.tenant_name} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Nama tenant" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status Perusahaan</label>
-                <input type="text" name="company_status" value={formData.company_status} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Status perusahaan" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cost Center</label>
-                <input type="text" name="cost_center" value={formData.cost_center} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Cost center" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Witel</label>
-                <input type="text" name="witel" value={formData.witel} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Witel" />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Alamat</label>
-              <textarea name="address" value={formData.address} onChange={handleInputChange} rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                placeholder="Alamat lengkap" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Objek Sewa</label>
-                <input type="text" name="objek_sewa" value={formData.objek_sewa} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Objek sewa" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Peruntukan</label>
-                <input type="text" name="peruntukan" value={formData.peruntukan} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Peruntukan" />
-              </div>
-            </div>
-
-            {/* Data Dokumen */}
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-gray-800 mb-3">Data Dokumen</h3>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Dokumen</label>
-                <input type="text" name="jenis_dokumen" value={formData.jenis_dokumen} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="Jenis dokumen" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">No/Tgl Dokumen</label>
-                <input type="text" name="no_tgl_dokumen" value={formData.no_tgl_dokumen} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="No/Tgl dokumen" />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Judul Dokumen</label>
-              <input type="text" name="judul_dokumen" value={formData.judul_dokumen} onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                placeholder="Judul dokumen" />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Link Dokumen Evidence</label>
-              <input type="url" name="link_dok_evidence" value={formData.link_dok_evidence} onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                placeholder="https://..." />
-            </div>
-
-            {/* Data Kontrak */}
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-gray-800 mb-3">Data Kontrak</h3>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Mulai Kontrak</label>
-                <input type="date" name="contract_start" value={formData.contract_start} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Akhir Kontrak</label>
-                <input type="date" name="contract_end" value={formData.contract_end} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Durasi (bulan)</label>
-                <input type="number" name="contract_duration_months" value={formData.contract_duration_months} onChange={handleInputChange} min="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
-              </div>
-            </div>
-
-            {/* Area & Harga */}
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-gray-800 mb-3">Area & Harga</h3>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">BR Area</label>
-                <input type="number" name="br_area" value={formData.br_area} onChange={handleInputChange} step="0.01" min="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">SC Area</label>
-                <input type="number" name="sc_area" value={formData.sc_area} onChange={handleInputChange} step="0.01" min="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Satuan</label>
-                <input type="text" name="satuan" value={formData.satuan} onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  placeholder="m², unit" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Harga BR/m²</label>
-                <input type="number" name="br_price_per_m2" value={formData.br_price_per_m2} onChange={handleInputChange} step="0.01" min="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Harga SC/m²</label>
-                <input type="number" name="sc_price_per_m2" value={formData.sc_price_per_m2} onChange={handleInputChange} step="0.01" min="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400" />
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Batal
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving || !formData.code || !formData.name}
-                className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSaving ? "Menyimpan..." : "Simpan"}
-              </button>
-            </div>
-          </form>
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors font-medium"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            onClick={handleSubmit}
+            disabled={isSaving || !formData.code || !formData.name}
+            className="flex-1 px-4 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? "Menyimpan..." : "Simpan Ruangan"}
+          </button>
         </div>
       </div>
     </div>

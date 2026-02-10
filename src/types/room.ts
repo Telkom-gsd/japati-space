@@ -1,3 +1,42 @@
+// Contract interface for multiple contracts per room
+export interface Contract {
+  id: string;
+  room_id: string;
+  jenis_dokumen: string | null;
+  judul_dokumen: string | null;
+  no_tgl_dokumen: string | null;
+  link_dok_evidence: string | null;
+  contract_start: string | null;
+  contract_end: string | null;
+  contract_duration_months: number | null;
+  br_area: number | null;
+  sc_area: number | null;
+  satuan: string | null;
+  br_price_per_m2: number | null;
+  sc_price_per_m2: number | null;
+  notes: string | null;
+  status: "active" | "expired" | "upcoming";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContractFormData {
+  jenis_dokumen: string;
+  judul_dokumen: string;
+  no_tgl_dokumen: string;
+  link_dok_evidence: string;
+  contract_start: string;
+  contract_end: string;
+  contract_duration_months: number | null;
+  br_area: number | null;
+  sc_area: number | null;
+  satuan: string;
+  br_price_per_m2: number | null;
+  sc_price_per_m2: number | null;
+  notes: string;
+  status: "active" | "expired" | "upcoming";
+}
+
 export interface Room {
   id: string;
   path_id: string;
@@ -14,7 +53,7 @@ export interface Room {
   color: string | null;
   created_at: string;
   updated_at: string;
-  // Additional fields
+  // Tenant info (shared across contracts)
   cost_center: string | null;
   witel: string | null;
   tenant_name: string | null;
@@ -22,6 +61,7 @@ export interface Room {
   address: string | null;
   objek_sewa: string | null;
   peruntukan: string | null;
+  // Legacy contract fields (for backward compatibility, will be deprecated)
   jenis_dokumen: string | null;
   judul_dokumen: string | null;
   no_tgl_dokumen: string | null;
@@ -34,6 +74,8 @@ export interface Room {
   satuan: string | null;
   br_price_per_m2: number | null;
   sc_price_per_m2: number | null;
+  // New: array of contracts
+  contracts?: Contract[];
 }
 
 export interface RoomFormData {
@@ -70,5 +112,5 @@ export interface RoomFormData {
 export interface SVGRoom {
   pathId: string;
   color: string;
-  pathElement: SVGPathElement;
+  pathElement: SVGPathElement | SVGPolygonElement | SVGRectElement;
 }
