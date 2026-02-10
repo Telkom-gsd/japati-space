@@ -20,14 +20,14 @@ export default function FloorNavigation({
   };
 
   return (
-    <nav className="flex flex-wrap gap-2">
+    <nav className="flex flex-nowrap gap-1">
       {floors.map((floor) => {
         const isActive = floor.toLowerCase() === currentFloor.toLowerCase();
         return (
           <Link
             key={floor}
             href={`/lantai/${floor.toLowerCase()}`}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            className={`px-2 md:px-3 py-1 text-xs md:text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
               isActive
                 ? "bg-gray-900 text-white"
                 : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"

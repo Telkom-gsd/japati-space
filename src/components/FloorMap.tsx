@@ -5,6 +5,7 @@ import type { Room, SVGRoom } from "@/types/room";
 import RoomTooltip from "./RoomTooltip";
 import RoomDetailModal from "./RoomDetailModal";
 import AddRoomModal from "./AddRoomModal";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface FloorMapProps {
   floor: string;
@@ -23,6 +24,7 @@ export default function FloorMap({
   selectedRoomId,
   onRoomSelect,
 }: FloorMapProps) {
+  const { isAdmin, loading: authLoading } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const [svgContent, setSvgContent] = useState<string>("");
   const [svgError, setSvgError] = useState<string | null>(null);
@@ -618,10 +620,11 @@ export default function FloorMap({
           isOpen={isModalOpen}
           onClose={handleModalClose}
           onSave={handleRoomSave}
+          readOnly={authLoading || !isAdmin}
         />
       )}
 
-      {isAddModalOpen && unassignedPathId && (
+      {isAddModalOpen && unassignedPathId && !authLoading && isAdmin && (
         <AddRoomModal
           pathId={unassignedPathId}
           floor={floor}

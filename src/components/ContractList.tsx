@@ -58,6 +58,7 @@ interface ContractListProps {
   onContractChange?: () => void;
   onPreview?: (url: string | null) => void;
   activePreviewUrl?: string | null;
+  readOnly?: boolean;
 }
 
 const emptyContract: ContractFormData = {
@@ -276,7 +277,7 @@ const ContractForm = ({ formData, editingId, isSaving, onInputChange, onCancel, 
   </div>
 );
 
-export default function ContractList({ roomId, onContractChange, onPreview, activePreviewUrl }: ContractListProps) {
+export default function ContractList({ roomId, onContractChange, onPreview, activePreviewUrl, readOnly = false }: ContractListProps) {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
@@ -449,7 +450,7 @@ export default function ContractList({ roomId, onContractChange, onPreview, acti
             {contracts.length} Kontrak
           </span>
         </div>
-        {!isAdding && !editingId && (
+        {!isAdding && !editingId && !readOnly && (
           <button
             onClick={handleAdd}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
@@ -476,12 +477,14 @@ export default function ContractList({ roomId, onContractChange, onPreview, acti
       {contracts.length === 0 && !isAdding ? (
         <div className="text-center py-8 text-gray-500">
           <p className="text-sm">Belum ada kontrak</p>
-          <button
-            onClick={handleAdd}
-            className="mt-2 text-blue-600 hover:text-blue-700 text-sm font-medium"
-          >
-            + Tambah kontrak pertama
-          </button>
+          {!readOnly && (
+            <button
+              onClick={handleAdd}
+              className="mt-2 text-blue-600 hover:text-blue-700 text-sm font-medium"
+            >
+              + Tambah kontrak pertama
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
@@ -608,29 +611,31 @@ export default function ContractList({ roomId, onContractChange, onPreview, acti
                         )}
                       </div>
 
-                      {/* Action Buttons */}
-                      <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEdit(contract);
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors text-sm"
-                        >
-                          <Icons.Edit />
-                          Edit
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(contract.id);
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors text-sm"
-                        >
-                          <Icons.Trash />
-                          Hapus
-                        </button>
-                      </div>
+                      {/* Action Buttons - Only show for admin */}
+                      {!readOnly && (
+                        <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEdit(contract);
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors text-sm"
+                          >
+                            <Icons.Edit />
+                            Edit
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(contract.id);
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors text-sm"
+                          >
+                            <Icons.Trash />
+                            Hapus
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>

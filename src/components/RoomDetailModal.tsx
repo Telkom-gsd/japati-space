@@ -9,6 +9,7 @@ interface RoomDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (room: Room) => void;
+  readOnly?: boolean;
 }
 
 // Icons as inline SVG components
@@ -195,6 +196,7 @@ export default function RoomDetailModal({
   isOpen,
   onClose,
   onSave,
+  readOnly = false,
 }: RoomDetailModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -468,6 +470,7 @@ export default function RoomDetailModal({
                   roomId={room.id} 
                   onPreview={handleContractPreview}
                   activePreviewUrl={previewContractUrl}
+                  readOnly={readOnly}
                 />
               </div>
 
@@ -552,16 +555,18 @@ export default function RoomDetailModal({
             <>
               <button
                 onClick={onClose}
-                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors font-medium"
+                className={`${readOnly ? "w-full" : "flex-1"} px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors font-medium`}
               >
                 Tutup
               </button>
-              <button
-                onClick={() => setIsEditing(true)}
-                className="flex-1 px-4 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors font-medium"
-              >
-                Edit Data
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="flex-1 px-4 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors font-medium"
+                >
+                  Edit Data
+                </button>
+              )}
             </>
           )}
         </div>
