@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = createClient();
 
   // Simple profile fetch without complex timeout/race logic
-  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
+  const fetchProfile = useCallback(async (userId: string, userEmail?: string, userName?: string): Promise<Profile | null> => {
     // Prevent concurrent fetches
     if (isFetchingProfile.current) {
       console.log("Already fetching profile, skipping...");
@@ -61,21 +61,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         if (error.code === 'PGRST116') {
-          console.warn("Profile not found, waiting for trigger...");
-          // Wait for database trigger to create profile
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          // Profile not found - create one
+          console.log("Profile not found, creating new profile...");
           
-          const { data: retryData, error: retryError } = await supabase
+          const newProfile = {
+            id: userId,
+            email: userEmail || '',
+            full_name: userName || userEmail?.split('@')[0] || 'User',
+            role: 'user' as const,
+            avatar_url: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          
+          const { data: createdProfile, error: createError } = await supabase
             .from("profiles")
-            .select("*")
-            .eq("id", userId)
+            .insert(newProfile)
+            .select()
             .single();
           
-          if (!retryError && retryData) {
-            console.log("Profile found on retry:", { role: retryData.role, email: retryData.email });
-            profileRef.current = retryData as Profile;
-            return retryData as Profile;
+          if (createError) {
+            console.error("Error creating profile:", createError.message);
+            // Still return a minimal profile so user can use the app
+            const minimalProfile: Profile = {
+              id: userId,
+              email: userEmail || '',
+              full_name: userName || 'User',
+              role: 'user',
+              avatar_url: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+            profileRef.current = minimalProfile;
+            return minimalProfile;
           }
+          
+          console.log("Profile created successfully:", { role: createdProfile?.role, email: createdProfile?.email });
+          profileRef.current = createdProfile as Profile;
+          return createdProfile as Profile;
         }
         console.error("Error fetching profile:", error.message);
         return null;
@@ -125,8 +148,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(initialSession);
           setUser(initialSession.user);
           
-          // Fetch profile
-          const profileData = await fetchProfile(initialSession.user.id);
+          // Fetch profile with user info for auto-creation if needed
+          const profileData = await fetchProfile(
+            initialSession.user.id,
+            initialSession.user.email,
+            initialSession.user.user_metadata?.full_name || initialSession.user.user_metadata?.name
+          );
           if (mounted && profileData) {
             setProfile(profileData);
             console.log("Initial auth complete. Role:", profileData.role);
@@ -170,7 +197,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               
               // Only fetch profile if we don't have one or it's for a different user
               if (!profileRef.current || profileRef.current.id !== currentSession.user.id) {
-                const profileData = await fetchProfile(currentSession.user.id);
+                const profileData = await fetchProfile(
+                  currentSession.user.id,
+                  currentSession.user.email,
+                  currentSession.user.user_metadata?.full_name || currentSession.user.user_metadata?.name
+                );
                 if (mounted && profileData) {
                   setProfile(profileData);
                 }

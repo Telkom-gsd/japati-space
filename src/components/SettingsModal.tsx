@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, type ReactElement } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Theme = "light" | "dark" | "system";
 
@@ -61,6 +62,11 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
     </svg>
   ),
+  Logout: () => (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+    </svg>
+  ),
   Settings: () => (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -72,6 +78,8 @@ const Icons = {
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [isSaved, setIsSaved] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const { user, signOut, loading: authLoading, profile } = useAuth();
 
   // Load settings from localStorage on mount
   useEffect(() => {
@@ -110,6 +118,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const handleResetSettings = () => {
     setSettings(defaultSettings);
     localStorage.removeItem("japatispace-settings");
+  };
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await signOut();
+      onClose();
+      // Redirect to login after logout
+      window.location.href = "/login";
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -246,6 +268,40 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <span>200%</span>
             </div>
           </div>
+
+          {/* Account Section - Only show if user is logged in */}
+          {user && (
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Icons.Logout />
+                <h3 className="text-sm font-semibold text-gray-700">Akun</h3>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Email</span>
+                  <span className="font-medium text-gray-900 truncate max-w-[180px]">
+                    {user.email}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Role</span>
+                  <span className={`font-medium ${profile?.role === 'admin' ? 'text-blue-600' : 'text-gray-600'}`}>
+                    {authLoading ? 'Loading...' : (profile?.role || 'user')}
+                  </span>
+                </div>
+                <div className="pt-2">
+                  <button
+                    onClick={handleLogout}
+                    disabled={isLoggingOut}
+                    className="w-full px-4 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Icons.Logout />
+                    {isLoggingOut ? 'Keluar...' : 'Keluar dari Akun'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* App Info */}
           <div className="text-center text-xs text-gray-400 pt-2 border-t border-gray-100">
