@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactElement, type ChangeEvent } from "react";
+import { useState, useRef, useEffect, type ReactElement, type ChangeEvent } from "react";
 import type { Room, RoomFormData } from "@/types/room";
 import ContractList from "./ContractList";
 
@@ -224,8 +224,8 @@ export default function RoomDetailModal({
   // State for selected contract preview - null means no preview shown
   const [previewContractUrl, setPreviewContractUrl] = useState<string | null>(null);
   
-  // Initialize formData with room data
-  const initialFormData: RoomFormData = {
+  // Create initial form data from room
+  const createFormData = (): RoomFormData => ({
     code: room.code,
     name: room.name,
     description: room.description || "",
@@ -254,18 +254,36 @@ export default function RoomDetailModal({
     satuan: room.satuan || "",
     br_price_per_m2: room.br_price_per_m2,
     sc_price_per_m2: room.sc_price_per_m2,
-  };
+  });
   
-  const [formData, setFormData] = useState<RoomFormData>(initialFormData);
+  const [formData, setFormData] = useState<RoomFormData>(createFormData);
+  
+  // Use ref to store the form data snapshot when editing starts
+  const editStartFormData = useRef<RoomFormData | null>(null);
+  
+  // Handle starting edit mode - capture current state
+  const handleStartEdit = () => {
+    editStartFormData.current = { ...formData };
+    setIsEditing(true);
+  };
 
   if (!isOpen) return null;
 
-  // Check if form has unsaved changes
-  const hasUnsavedChanges = () => {
-    if (!isEditing) return false;
+  // Check if form has unsaved changes compared to when edit started
+  const hasUnsavedChanges = (): boolean => {
+    if (!isEditing) {
+      console.log("hasUnsavedChanges: not editing, returning false");
+      return false;
+    }
+    if (!editStartFormData.current) {
+      console.log("hasUnsavedChanges: no snapshot, returning false");
+      return false;
+    }
     
-    // Compare current formData with initial data
-    return JSON.stringify(formData) !== JSON.stringify(initialFormData);
+    // Compare current formData with snapshot from when edit started
+    const hasChanges = JSON.stringify(formData) !== JSON.stringify(editStartFormData.current);
+    console.log("hasUnsavedChanges:", hasChanges);
+    return hasChanges;
   };
 
   // Handle close with confirmation if has unsaved changes
@@ -295,6 +313,7 @@ export default function RoomDetailModal({
   };
 
   const handleSave = async () => {
+    console.log("handleSave called, room.id:", room.id);
     setIsSaving(true);
     try {
       // Prepare data - convert empty strings to null for date fields
@@ -323,14 +342,20 @@ export default function RoomDetailModal({
         phone: formData.phone || null,
       };
 
+      console.log("Saving data:", dataToSave);
+
       const response = await fetch(`/api/rooms/${room.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(dataToSave),
       });
       
+      console.log("Response status:", response.status);
+      
       if (response.ok) {
         const updatedRoom = await response.json();
+        console.log("Room updated successfully:", updatedRoom);
+        editStartFormData.current = null; // Clear the snapshot
         onSave(updatedRoom);
         setIsEditing(false);
       } else {
@@ -357,8 +382,11 @@ export default function RoomDetailModal({
       }
     }
     
-    // Reset form to initial values
-    setFormData(initialFormData);
+    // Reset form to snapshot values from when edit started
+    if (editStartFormData.current) {
+      setFormData(editStartFormData.current);
+    }
+    editStartFormData.current = null;
     setIsEditing(false);
   };
 
@@ -411,6 +439,7 @@ export default function RoomDetailModal({
                 {statusLabels[room.status]}
               </span>
               <button
+                type="button"
                 onClick={handleClose}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-400 hover:text-gray-600"
                 title="Tutup"
@@ -569,12 +598,14 @@ export default function RoomDetailModal({
           {isEditing ? (
             <>
               <button
+                type="button"
                 onClick={handleCancel}
                 className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors font-medium"
               >
                 Batal
               </button>
               <button
+                type="button"
                 onClick={handleSave}
                 disabled={isSaving}
                 className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
@@ -585,14 +616,16 @@ export default function RoomDetailModal({
           ) : (
             <>
               <button
+                type="button"
                 onClick={handleClose}
                 className={`${readOnly ? "w-full" : "flex-1"} px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors font-medium`}
               >
-                Tutup
+              Tutup
               </button>
               {!readOnly && (
                 <button
-                  onClick={() => setIsEditing(true)}
+                  type="button"
+                  onClick={handleStartEdit}
                   className="flex-1 px-4 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors font-medium"
                 >
                   Edit Data
