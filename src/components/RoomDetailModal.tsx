@@ -101,25 +101,46 @@ interface InputFieldProps {
   onChange: (e: ChangeEvent<HTMLInputElement>) => void;
 }
 
-const InputField = ({ label, name, type = "text", value, placeholder, step, min, isEditing, onChange }: InputFieldProps) => (
-  <div>
-    <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-    {isEditing ? (
-      <input
-        type={type}
-        name={name}
-        value={value ?? ""}
-        onChange={onChange}
-        step={step}
-        min={min}
-        placeholder={placeholder}
-        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors"
-      />
-    ) : (
-      <p className="text-sm text-gray-800">{renderField(value)}</p>
-    )}
-  </div>
-);
+const InputField = ({ label, name, type = "text", value, placeholder, step, min, isEditing, onChange }: InputFieldProps) => {
+  // For number inputs, allow both comma and period as decimal separator
+  const handleNumberInput = (e: ChangeEvent<HTMLInputElement>) => {
+    if (type === "number" && e.target.value) {
+      // Create a synthetic event with the comma replaced by period
+      const normalizedValue = e.target.value.replace(",", ".");
+      const syntheticEvent = {
+        ...e,
+        target: {
+          ...e.target,
+          value: normalizedValue,
+          name: e.target.name,
+        },
+      } as ChangeEvent<HTMLInputElement>;
+      onChange(syntheticEvent);
+    } else {
+      onChange(e);
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
+      {isEditing ? (
+        <input
+          type={type}
+          name={name}
+          value={value ?? ""}
+          onChange={handleNumberInput}
+          step={step}
+          min={min}
+          placeholder={placeholder}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors"
+        />
+      ) : (
+        <p className="text-sm text-gray-800">{renderField(value)}</p>
+      )}
+    </div>
+  );
+};
 
 // TextAreaField component - defined outside to prevent re-creation
 interface TextAreaFieldProps {
@@ -242,7 +263,9 @@ export default function RoomDetailModal({
     const numberFields = ["area_sqm", "contract_duration_months", "br_area", "sc_area", "br_price_per_m2", "sc_price_per_m2"];
     setFormData((prev) => ({
       ...prev,
-      [name]: numberFields.includes(name) ? (value ? parseFloat(value) : null) : value,
+      [name]: numberFields.includes(name) 
+        ? (value ? parseFloat(value.replace(",", ".")) : null) 
+        : value,
     }));
   };
 

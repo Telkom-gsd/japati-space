@@ -35,13 +35,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const supabase = createClient();
 
-  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
+  const fetchProfile = useCallback(async (userId: string, forceRefresh = false): Promise<Profile | null> => {
     try {
-      const { data, error } = await supabase
+      // Build query with optional cache busting
+      let query = supabase
         .from("profiles")
         .select("*")
-        .eq("id", userId)
-        .single();
+        .eq("id", userId);
+
+      // Add timestamp to bust cache if force refresh
+      if (forceRefresh) {
+        query = query.order("updated_at", { ascending: false });
+      }
+
+      const { data, error } = await query.single();
 
       if (error) {
         // If profile doesn't exist, it might not have been created yet
@@ -67,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
+      console.log("Profile fetched:", { role: data?.role, email: data?.email });
       return data as Profile;
     } catch (err) {
       console.error("Exception fetching profile:", err);
@@ -76,8 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     if (user) {
-      const profileData = await fetchProfile(user.id);
+      console.log("Refreshing profile for user:", user.id);
+      const profileData = await fetchProfile(user.id, true); // Force refresh
       setProfile(profileData);
+      console.log("Profile refreshed:", { role: profileData?.role });
     }
   }, [user, fetchProfile]);
 

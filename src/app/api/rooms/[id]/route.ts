@@ -61,16 +61,27 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     console.log("Updating room:", id);
     console.log("Update data:", JSON.stringify(body, null, 2));
 
-    const { data, error } = await supabase
+    // First, update the room
+    const { error: updateError } = await supabase
       .from("rooms")
       .update(body)
+      .eq("id", id);
+
+    if (updateError) {
+      console.error("Supabase update error:", updateError);
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    // Then fetch the updated room
+    const { data, error: fetchError } = await supabase
+      .from("rooms")
+      .select("*")
       .eq("id", id)
-      .select()
       .single();
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (fetchError) {
+      console.error("Supabase fetch error:", fetchError);
+      return NextResponse.json({ error: fetchError.message }, { status: 500 });
     }
 
     return NextResponse.json(data);
