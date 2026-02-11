@@ -45,11 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         // If profile doesn't exist, it might not have been created yet
-        // This can happen if the trigger hasn't run
         if (error.code === 'PGRST116') {
-          console.warn("Profile not found, it may be created shortly...");
-          // Wait a moment and try again (trigger might be creating it)
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          console.warn("Profile not found, retrying once...");
+          // Wait briefly and try again (trigger might be creating it)
+          await new Promise(resolve => setTimeout(resolve, 2000));
           const { data: retryData, error: retryError } = await supabase
             .from("profiles")
             .select("*")
@@ -57,16 +56,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .single();
           
           if (!retryError && retryData) {
+            console.log("Profile found on retry");
             return retryData as Profile;
           }
+          
+          console.error("Profile still not found after retry");
+        } else {
+          console.error("Error fetching profile:", error.message);
         }
-        console.error("Error fetching profile:", error.message);
         return null;
       }
 
       return data as Profile;
     } catch (err) {
-      console.error("Error fetching profile:", err);
+      console.error("Exception fetching profile:", err);
       return null;
     }
   }, [supabase]);
@@ -79,21 +82,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user, fetchProfile]);
 
   useEffect(() => {
-    // Get initial session
+    let mounted = true;
+    
+    // Get initial session with timeout
     const getInitialSession = async () => {
       try {
-        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        // Set a timeout to prevent infinite loading
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Session fetch timeout')), 10000)
+        );
+        
+        const sessionPromise = supabase.auth.getSession();
+        
+        const { data: { session: initialSession } } = await Promise.race([
+          sessionPromise,
+          timeoutPromise
+        ]) as any;
+        
+        if (!mounted) return;
         
         if (initialSession?.user) {
           setSession(initialSession);
           setUser(initialSession.user);
-          const profileData = await fetchProfile(initialSession.user.id);
-          setProfile(profileData);
+          
+          // Fetch profile with timeout protection
+          try {
+            const profileData = await Promise.race([
+              fetchProfile(initialSession.user.id),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+            ]);
+            
+            if (mounted) {
+              setProfile(profileData);
+            }
+          } catch (profileError) {
+            console.error("Error fetching profile:", profileError);
+            if (mounted) {
+              setProfile(null);
+            }
+          }
         }
       } catch (error) {
         console.error("Error getting initial session:", error);
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
@@ -104,21 +138,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event, currentSession) => {
         console.log("Auth state changed:", event);
         
+        if (!mounted) return;
+        
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
         if (currentSession?.user) {
-          const profileData = await fetchProfile(currentSession.user.id);
-          setProfile(profileData);
+          try {
+            const profileData = await Promise.race([
+              fetchProfile(currentSession.user.id),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
+            ]);
+            
+            if (mounted) {
+              setProfile(profileData);
+            }
+          } catch (error) {
+            console.error("Error fetching profile on auth change:", error);
+            if (mounted) {
+              setProfile(null);
+            }
+          }
         } else {
           setProfile(null);
         }
 
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     );
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
   }, [supabase, fetchProfile]);
