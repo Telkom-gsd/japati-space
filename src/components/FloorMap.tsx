@@ -190,18 +190,22 @@ export default function FloorMap({
       setSvgError(null);
       const floorName = floor.toUpperCase();
       
+      // Add cache busting timestamp
+      const cacheBuster = `?t=${Date.now()}`;
+      
       try {
-        // Try Supabase Storage API first
-        let response = await fetch(`/api/get-svg/${floorName}`);
+        // Try Supabase Storage API first (with cache busting)
+        let response = await fetch(`/api/get-svg/${floorName}${cacheBuster}`);
         
         // If not found in storage (404), fallback to public folder
         if (response.status === 404) {
-          console.log(`SVG not in storage, using public folder: ${floorName}.svg`);
-          response = await fetch(`/denah/${floorName}.svg`);
+          console.log(`[FloorMap] SVG not in storage, using public folder: ${floorName}.svg`);
+          response = await fetch(`/denah/${floorName}.svg${cacheBuster}`);
         }
         
         if (response.ok) {
           const text = await response.text();
+          console.log(`[FloorMap] Loaded SVG for ${floorName} (${text.length} bytes)`);
           setSvgContent(text);
         } else {
           setSvgError(`File SVG tidak ditemukan: ${floorName}.svg`);

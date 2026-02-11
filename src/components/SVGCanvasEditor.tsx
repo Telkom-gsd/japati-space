@@ -1268,15 +1268,18 @@ export default function SVGCanvasEditor({
     setIsLoading(true);
     setError(null);
     const upperFloorName = floorName.toUpperCase();
+    
+    // Add cache busting timestamp to always get fresh data
+    const cacheBuster = `?t=${Date.now()}`;
 
     try {
-      // Try Supabase Storage API first
-      let response = await fetch(`/api/get-svg/${upperFloorName}`);
+      // Try Supabase Storage API first (with cache busting)
+      let response = await fetch(`/api/get-svg/${upperFloorName}${cacheBuster}`);
       
       // If not found in storage (404), fallback to public folder
       if (response.status === 404) {
         console.log(`[SVG Load] Not in storage, using public folder: ${upperFloorName}.svg`);
-        response = await fetch(`/denah/${upperFloorName}.svg`);
+        response = await fetch(`/denah/${upperFloorName}.svg${cacheBuster}`);
       }
       
       if (!response.ok) {
@@ -1286,6 +1289,8 @@ export default function SVGCanvasEditor({
       }
 
       const svgText = await response.text();
+      console.log(`[SVG Load] Loaded ${upperFloorName}.svg (${svgText.length} bytes)`);
+      
       const map = mapRef.current;
       const drawnItems = drawnItemsRef.current;
       if (!map || !drawnItems) return;
