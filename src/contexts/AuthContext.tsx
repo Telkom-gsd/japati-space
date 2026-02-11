@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const supabase = createClient();
 
-  // Simple profile fetch without complex timeout/race logic
+  // Simple profile fetch with timeout protection
   const fetchProfile = useCallback(async (userId: string, userEmail?: string, userName?: string): Promise<Profile | null> => {
     // Prevent concurrent fetches
     if (isFetchingProfile.current) {
@@ -50,14 +50,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     isFetchingProfile.current = true;
     
+    // Create a fallback profile in case of timeout or error
+    const fallbackProfile: Profile = {
+      id: userId,
+      email: userEmail || '',
+      full_name: userName || userEmail?.split('@')[0] || 'User',
+      role: 'user',
+      avatar_url: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    
     try {
       console.log("Fetching profile for:", userId);
       
-      const { data, error } = await supabase
+      // Create timeout promise
+      const timeoutPromise = new Promise<null>((_, reject) => {
+        setTimeout(() => reject(new Error('TIMEOUT')), 8000);
+      });
+      
+      // Race between fetch and timeout
+      const fetchPromise = supabase
         .from("profiles")
         .select("*")
         .eq("id", userId)
         .single();
+      
+      const result = await Promise.race([fetchPromise, timeoutPromise]);
+      
+      // If we get here, fetchPromise won
+      const { data, error } = result as { data: Profile | null; error: { code: string; message: string } | null };
 
       if (error) {
         if (error.code === 'PGRST116') {
@@ -82,18 +104,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           
           if (createError) {
             console.error("Error creating profile:", createError.message);
-            // Still return a minimal profile so user can use the app
-            const minimalProfile: Profile = {
-              id: userId,
-              email: userEmail || '',
-              full_name: userName || 'User',
-              role: 'user',
-              avatar_url: null,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            };
-            profileRef.current = minimalProfile;
-            return minimalProfile;
+            profileRef.current = fallbackProfile;
+            return fallbackProfile;
           }
           
           console.log("Profile created successfully:", { role: createdProfile?.role, email: createdProfile?.email });
@@ -101,15 +113,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return createdProfile as Profile;
         }
         console.error("Error fetching profile:", error.message);
-        return null;
+        profileRef.current = fallbackProfile;
+        return fallbackProfile;
       }
 
-      console.log("Profile fetched successfully:", { role: data?.role, email: data?.email });
-      profileRef.current = data as Profile;
-      return data as Profile;
+      if (data) {
+        console.log("Profile fetched successfully:", { role: data.role, email: data.email });
+        profileRef.current = data as Profile;
+        return data as Profile;
+      }
+      
+      // No data, use fallback
+      profileRef.current = fallbackProfile;
+      return fallbackProfile;
     } catch (err) {
-      console.error("Exception fetching profile:", err);
-      return null;
+      if (err instanceof Error && err.message === 'TIMEOUT') {
+        console.warn("Profile fetch timed out after 8s, using fallback profile");
+      } else {
+        console.error("Exception fetching profile:", err);
+      }
+      profileRef.current = fallbackProfile;
+      return fallbackProfile;
     } finally {
       isFetchingProfile.current = false;
     }

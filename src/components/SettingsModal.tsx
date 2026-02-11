@@ -122,15 +122,22 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
+    console.log("Logout initiated...");
+    
     try {
-      await signOut();
+      // Close modal first
       onClose();
-      // Redirect to login after logout
-      window.location.href = "/login";
+      
+      // Call signOut
+      await signOut();
+      console.log("SignOut completed, redirecting...");
+      
+      // Force redirect to login with full page reload
+      window.location.replace("/login");
     } catch (error) {
       console.error("Logout error:", error);
-    } finally {
-      setIsLoggingOut(false);
+      // Even if error, still try to redirect
+      window.location.replace("/login");
     }
   };
 
