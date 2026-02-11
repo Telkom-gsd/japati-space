@@ -107,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data: { session: initialSession } } = await Promise.race([
           sessionPromise,
           timeoutPromise
-        ]) as any;
+        ]) as { data: { session: any } };
         
         if (!mounted) return;
         
@@ -115,21 +115,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(initialSession);
           setUser(initialSession.user);
           
-          // Fetch profile with timeout protection
+          // Fetch profile - retry if failed
           try {
-            const profileData = await Promise.race([
-              fetchProfile(initialSession.user.id),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
-            ]);
+            console.log("Fetching initial profile for:", initialSession.user.id);
+            const profileData = await fetchProfile(initialSession.user.id);
             
-            if (mounted) {
+            if (mounted && profileData) {
+              console.log("Initial profile set:", { role: profileData.role, email: profileData.email });
               setProfile(profileData);
+            } else if (mounted) {
+              console.warn("Initial profile fetch returned null");
+              // Try one more time after a delay
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              const retryProfile = await fetchProfile(initialSession.user.id);
+              if (mounted && retryProfile) {
+                console.log("Retry profile set:", { role: retryProfile.role });
+                setProfile(retryProfile);
+              }
             }
           } catch (profileError) {
-            console.error("Error fetching profile:", profileError);
-            if (mounted) {
-              setProfile(null);
-            }
+            console.error("Error fetching initial profile:", profileError);
           }
         }
       } catch (error) {
@@ -150,26 +155,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (!mounted) return;
         
+        // Only update session and user if they actually changed
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
         if (currentSession?.user) {
+          // Skip fetching profile on TOKEN_REFRESHED events if we already have one
+          // This prevents unnecessary re-fetches that could cause race conditions
+          if (event === 'TOKEN_REFRESHED') {
+            console.log("Token refreshed, keeping existing profile");
+            setLoading(false);
+            return;
+          }
+
+          // For SIGNED_IN event, check if we already have the correct profile
+          // This handles repeated SIGNED_IN events from Supabase
+          if (event === 'SIGNED_IN') {
+            // Get current profile state - use a ref-like approach
+            setProfile(currentProfile => {
+              // If we already have a profile for this user, don't fetch again
+              if (currentProfile && currentProfile.id === currentSession.user.id) {
+                console.log("Already have profile for this user, skipping fetch");
+                return currentProfile;
+              }
+              return currentProfile; // Will trigger fetch below
+            });
+          }
+
           try {
-            const profileData = await Promise.race([
-              fetchProfile(currentSession.user.id),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))
-            ]);
-            
-            if (mounted) {
-              setProfile(profileData);
+            // Only fetch if we don't have a profile or it's for a different user
+            const shouldFetch = await new Promise<boolean>((resolve) => {
+              setProfile(currentProfile => {
+                const needsFetch = !currentProfile || currentProfile.id !== currentSession.user.id;
+                resolve(needsFetch);
+                return currentProfile;
+              });
+            });
+
+            if (shouldFetch) {
+              console.log("Fetching profile for user:", currentSession.user.id);
+              const profileData = await fetchProfile(currentSession.user.id);
+              
+              if (mounted && profileData) {
+                console.log("Setting profile:", { role: profileData.role, email: profileData.email });
+                setProfile(profileData);
+              } else if (mounted && !profileData) {
+                console.warn("Profile fetch returned null, keeping existing profile");
+                // DON'T set profile to null - keep the existing one
+              }
             }
           } catch (error) {
             console.error("Error fetching profile on auth change:", error);
-            if (mounted) {
-              setProfile(null);
-            }
+            // DON'T set profile to null on error - keep the existing one
           }
         } else {
+          // Only clear profile when user is actually logged out
           setProfile(null);
         }
 
