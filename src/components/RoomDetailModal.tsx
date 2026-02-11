@@ -223,7 +223,9 @@ export default function RoomDetailModal({
   const [isSaving, setIsSaving] = useState(false);
   // State for selected contract preview - null means no preview shown
   const [previewContractUrl, setPreviewContractUrl] = useState<string | null>(null);
-  const [formData, setFormData] = useState<RoomFormData>({
+  
+  // Initialize formData with room data
+  const initialFormData: RoomFormData = {
     code: room.code,
     name: room.name,
     description: room.description || "",
@@ -252,9 +254,32 @@ export default function RoomDetailModal({
     satuan: room.satuan || "",
     br_price_per_m2: room.br_price_per_m2,
     sc_price_per_m2: room.sc_price_per_m2,
-  });
+  };
+  
+  const [formData, setFormData] = useState<RoomFormData>(initialFormData);
 
   if (!isOpen) return null;
+
+  // Check if form has unsaved changes
+  const hasUnsavedChanges = () => {
+    if (!isEditing) return false;
+    
+    // Compare current formData with initial data
+    return JSON.stringify(formData) !== JSON.stringify(initialFormData);
+  };
+
+  // Handle close with confirmation if has unsaved changes
+  const handleClose = () => {
+    if (hasUnsavedChanges()) {
+      const confirmClose = window.confirm(
+        "Ada perubahan yang belum disimpan. Apakah Anda yakin ingin menutup?"
+      );
+      if (!confirmClose) {
+        return; // Don't close if user cancels
+      }
+    }
+    onClose();
+  };
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -322,36 +347,18 @@ export default function RoomDetailModal({
   };
 
   const handleCancel = () => {
-    setFormData({
-      code: room.code,
-      name: room.name,
-      description: room.description || "",
-      area_sqm: room.area_sqm,
-      capacity: room.capacity || "",
-      facilities: room.facilities || "",
-      status: room.status,
-      pic: room.pic || "",
-      phone: room.phone || "",
-      cost_center: room.cost_center || "",
-      witel: room.witel || "",
-      tenant_name: room.tenant_name || "",
-      company_status: room.company_status || "",
-      address: room.address || "",
-      objek_sewa: room.objek_sewa || "",
-      peruntukan: room.peruntukan || "",
-      jenis_dokumen: room.jenis_dokumen || "",
-      judul_dokumen: room.judul_dokumen || "",
-      no_tgl_dokumen: room.no_tgl_dokumen || "",
-      link_dok_evidence: room.link_dok_evidence || "",
-      contract_start: room.contract_start || "",
-      contract_end: room.contract_end || "",
-      contract_duration_months: room.contract_duration_months,
-      br_area: room.br_area,
-      sc_area: room.sc_area,
-      satuan: room.satuan || "",
-      br_price_per_m2: room.br_price_per_m2,
-      sc_price_per_m2: room.sc_price_per_m2,
-    });
+    // Check if there are unsaved changes
+    if (hasUnsavedChanges()) {
+      const confirmCancel = window.confirm(
+        "Ada perubahan yang belum disimpan. Apakah Anda yakin ingin membatalkan?"
+      );
+      if (!confirmCancel) {
+        return; // Don't cancel if user declines
+      }
+    }
+    
+    // Reset form to initial values
+    setFormData(initialFormData);
     setIsEditing(false);
   };
 
@@ -384,7 +391,7 @@ export default function RoomDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} />
       <div className={`relative bg-white rounded-2xl shadow-2xl w-full ${modalMaxWidth} max-h-[90vh] overflow-hidden flex flex-col`}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
@@ -404,8 +411,9 @@ export default function RoomDetailModal({
                 {statusLabels[room.status]}
               </span>
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-400 hover:text-gray-600"
+                title="Tutup"
               >
                 <Icons.Close />
               </button>
@@ -577,7 +585,7 @@ export default function RoomDetailModal({
           ) : (
             <>
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className={`${readOnly ? "w-full" : "flex-1"} px-4 py-2.5 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-100 transition-colors font-medium`}
               >
                 Tutup
