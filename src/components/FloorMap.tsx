@@ -188,13 +188,23 @@ export default function FloorMap({
     const loadSvg = async () => {
       setIsLoadingSvg(true);
       setSvgError(null);
+      const floorName = floor.toUpperCase();
+      
       try {
-        const response = await fetch(`/denah/${floor.toUpperCase()}.svg`);
+        // Try Supabase Storage API first
+        let response = await fetch(`/api/get-svg/${floorName}`);
+        
+        // If not found in storage (404), fallback to public folder
+        if (response.status === 404) {
+          console.log(`SVG not in storage, using public folder: ${floorName}.svg`);
+          response = await fetch(`/denah/${floorName}.svg`);
+        }
+        
         if (response.ok) {
           const text = await response.text();
           setSvgContent(text);
         } else {
-          setSvgError(`File SVG tidak ditemukan: ${floor.toUpperCase()}.svg`);
+          setSvgError(`File SVG tidak ditemukan: ${floorName}.svg`);
         }
       } catch (error) {
         console.error("Error loading SVG:", error);

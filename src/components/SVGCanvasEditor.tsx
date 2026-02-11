@@ -1267,12 +1267,21 @@ export default function SVGCanvasEditor({
   const loadSVGContent = async (floorName: string) => {
     setIsLoading(true);
     setError(null);
+    const upperFloorName = floorName.toUpperCase();
 
     try {
-      const response = await fetch(`/denah/${floorName.toUpperCase()}.svg`);
+      // Try Supabase Storage API first
+      let response = await fetch(`/api/get-svg/${upperFloorName}`);
+      
+      // If not found in storage (404), fallback to public folder
+      if (response.status === 404) {
+        console.log(`[SVG Load] Not in storage, using public folder: ${upperFloorName}.svg`);
+        response = await fetch(`/denah/${upperFloorName}.svg`);
+      }
+      
       if (!response.ok) {
         throw new Error(
-          `File SVG tidak ditemukan: ${floorName.toUpperCase()}.svg`,
+          `File SVG tidak ditemukan: ${upperFloorName}.svg`,
         );
       }
 
