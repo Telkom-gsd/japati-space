@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase-server";
 
 // GET: Fetch contracts, optionally filtered by room_id
 export async function GET(request: NextRequest) {
-  if (!isSupabaseConfigured) {
-    return NextResponse.json(
-      { error: "Database not configured" },
-      { status: 503 }
-    );
-  }
-
   try {
+    const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     const roomId = searchParams.get("room_id");
 
@@ -42,16 +36,28 @@ export async function GET(request: NextRequest) {
 
 // POST: Create a new contract
 export async function POST(request: NextRequest) {
-  if (!isSupabaseConfigured) {
-    return NextResponse.json(
-      { error: "Database not configured" },
-      { status: 503 }
-    );
-  }
-
   try {
+    const supabase = await createClient();
     const body = await request.json();
     const { room_id, ...contractData } = body;
+
+    // Check if user is authenticated
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Check if user is admin
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.role !== "admin") {
+      return NextResponse.json({ error: "Forbidden - Admin access required" }, { status: 403 });
+    }
 
     if (!room_id) {
       return NextResponse.json(
